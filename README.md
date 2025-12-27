@@ -1,1 +1,5 @@
 # CaptureTheFlag
+
+## Notes and findings
+
+* 
