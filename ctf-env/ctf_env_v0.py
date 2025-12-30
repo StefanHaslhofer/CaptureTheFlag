@@ -1,5 +1,3 @@
-from environment/ctf_env import CTFEnv
-
 ctf_env = CTFEnv()
 ctf_env.reset()
 

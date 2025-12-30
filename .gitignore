@@ -143,6 +143,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+!ctf-env/env/
 
 # Spyder project settings
 .spyderproject
