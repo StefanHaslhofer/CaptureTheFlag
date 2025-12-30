@@ -4,9 +4,13 @@ ctf_env = CTFEnv()
 ctf_env.reset()
 
 while True:
-    # TODO random movement + no tagging
     actions = {
-        agent: ctf_env.action_spaces(agent).sample()
+        agent: {
+            "move": ctf_env.action_spaces[agent]["move"].sample(),
+            "tag": ctf_env.action_spaces[agent]["tag"].sample(),
+        }
         for agent in ctf_env.agents
     }
     observations, rewards, terminations, truncations, infos = ctf_env.step(actions)
+
+ctf_env.close()

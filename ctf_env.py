@@ -108,8 +108,9 @@ class CTFEnv(ParallelEnv):
     def step(self, action_dict):
         # 🎬 carry out actions
         for agent in self.agents:
-            # TODO
-            None
+            action = action_dict[agent]
+            self._move(agent, action["move"])
+            self._tag(agent, action["tag"])
 
         # 🚩 check if an agent picked up or captured the enemy flag
         for agent in self.agents:
@@ -134,7 +135,28 @@ class CTFEnv(ParallelEnv):
         self.render()
 
         # return observation dict, rewards dict, termination/truncation dicts, and infos dict
-        return observations, rewards, terminations, truncations, {}
+        return observations, rewards, terminations, truncations, infos
+
+    def close(self):
+        if self.screen is not None:
+            pygame.quit()
+            self.screen = None
+
+    def _move(self, agent, action):
+        pos = self.agent_positions[agent].copy()
+        if action == 1: # up
+            pos[1] = max(0, pos[1] - 1)
+        elif action == 2: # down
+            pos[1] = min(self.height, pos[1] + 1)
+        elif action == 3: # left
+            pos[0] = max(0, pos[0] - 1)
+        elif action == 4: # right
+            pos[0] = min(self.width, pos[0] + 1)
+
+        self.agent_positions[agent] = pos
+
+    def _tag(self, agent, action):
+        None
 
     def _update_flag_status(self, agent):
         """Check the status of the enemy flag based on the positions of the agent and flags.
