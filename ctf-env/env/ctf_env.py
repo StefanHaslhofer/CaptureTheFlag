@@ -1,6 +1,6 @@
 import pygame
 from pettingzoo import ParallelEnv
-import gymnasium.spaces as spaces
+from gymnasium import spaces
 import numpy as np
 
 
@@ -16,9 +16,9 @@ def get_enemy_team(agent):
 
 
 class CTFEnv(ParallelEnv):
-    ENTITY_SIZE = 15
+    SCALE_FACTOR = 15
 
-    def __init__(self, width=2000, height=1000, num_of_team_agents=2):
+    def __init__(self, width=84, height=84, num_of_team_agents=2, render_mode="human"):
         super().__init__()
 
         self.width = width
@@ -38,20 +38,14 @@ class CTFEnv(ParallelEnv):
         )
         # create observation spaces for all agents
         self.observation_spaces = {
-            # TODO maybe add flag carrier to observation?
-            agent: spaces.Dict({
-                # Grid observation with different channels for different entity types:
-                # (0.0 = empty cell, 0.5 = agent itself, 1.0 = entity present)
-                #   Channel 0: red team agent positions
-                #   Channel 1: blue team agent positions
-                #   Channel 2: red flag location
-                #   Channel 3: blue flag location
-                #   Channel 4: obstacle location
-                "grid": spaces.Box(0, 1, (self.height, self.width, 5), np.float32),
-                # Flag status observation: 0 = normal, 1 = picked up, 2 = captured
-                "red_flag_status": spaces.Discrete(3),
-                "blue_flag_status": spaces.Discrete(3)
-            })
+            # Grid observation with different channels for different entity types:
+            # (0.0 = empty cell, 0.5 = agent itself, 1.0 = entity present)
+            #   Channel 0: red team agent positions
+            #   Channel 1: blue team agent positions
+            #   Channel 2: red flag location
+            #   Channel 3: blue flag location
+            #   Channel 4: obstacle location
+            agent: spaces.Box(0, 1, (self.height, self.width, 5), np.float16)
             for agent in self.agents
         }
         # create action spaces for all agents
@@ -67,13 +61,15 @@ class CTFEnv(ParallelEnv):
         }
 
         # rendering setup
-        self.render_mode = "human"
+        self.render_mode = render_mode
         self.screen = None
         self.clock = None
 
     def reset(self, *, seed=None, options=None):
         if seed is not None:
             np.random.seed(seed)
+
+        print("RESET")
 
         # Set initial flag positions.
         # Randomly place red_flag on the left and blue_flag on the right.
@@ -130,20 +126,26 @@ class CTFEnv(ParallelEnv):
             for agent in self.agents
         }
 
-        terminations = {agent: False for agent in self.agents}
+        # TODO implement terminations -> own function -> step counter should be part of ctf_env
+        terminations = {agent: self.blue_flag_status == 1 or self.red_flag_status == 1 for agent in self.agents}
         truncations = {agent: False for agent in self.agents}
         infos = {agent: {} for agent in self.agents}
 
         self.render()
 
+        print(rewards)
         # return observation dict, rewards dict, termination/truncation dicts, and infos dict
         return observations, rewards, terminations, truncations, infos
 
     def render(self):
         if self.screen is None:
             pygame.init()
-            self.screen = pygame.display.set_mode((self.width, self.height))
+            self.screen = pygame.display.set_mode((self.width * self.SCALE_FACTOR, self.height * self.SCALE_FACTOR))
             self.clock = pygame.time.Clock()
+
+        # 🥶 clear the event queue to stop the game from freezing
+        for _e in pygame.event.get():
+            pass
 
         # set white background
         self.screen.fill((255, 255, 255))
@@ -155,7 +157,13 @@ class CTFEnv(ParallelEnv):
         self._draw_flags()
 
         pygame.display.flip()
-        self.clock.tick(10)
+        self.clock.tick(20)
+
+    def observation_space(self, agent):
+        return self.observation_spaces[agent]
+
+    def action_space(self, agent):
+        return self.action_spaces[agent]
 
     def close(self):
         if self.screen is not None:
@@ -252,20 +260,18 @@ class CTFEnv(ParallelEnv):
         #   maybe flag carrier part of observation?
         # TODO check for obstacle
 
-        return {
-            "grid": np.stack((red_agents, blue_agents, red_flag, blue_flag, obstacles)),
-            "red_flag_status": self.red_flag_status,
-            "blue_flag_status": self.blue_flag_status
-        }
+        return np.stack((red_agents, blue_agents, red_flag, blue_flag, obstacles), axis=-1)
 
     def _draw_agents(self):
         for i, agent in enumerate(self.agents):
             pos = self.agent_positions[agent]
             color = get_team(agent)
-            pygame.draw.circle(self.screen, color, (pos[0], pos[1]), self.ENTITY_SIZE)
+            pygame.draw.circle(self.screen, color, (pos[0] * self.SCALE_FACTOR, pos[1] * self.SCALE_FACTOR),
+                               self.SCALE_FACTOR)
 
     def _draw_flags(self):
         for flag in self.flag_positions:
             pos = self.flag_positions[flag]
             color = get_team(flag)
-            pygame.draw.circle(self.screen, color, (pos[0], pos[1]), self.ENTITY_SIZE + 2, 2)
+            pygame.draw.circle(self.screen, color, (pos[0] * self.SCALE_FACTOR, pos[1] * self.SCALE_FACTOR),
+                               self.SCALE_FACTOR + 2, 2)
