@@ -66,10 +66,12 @@ class CTFEnv(ParallelEnv):
         self.clock = None
 
     def reset(self, *, seed=None, options=None):
+        # TODO implement correct reset after max steps
         if seed is not None:
             np.random.seed(seed)
 
         print("RESET")
+        self.flag_carrier = None
 
         # Set initial flag positions.
         # Randomly place red_flag on the left and blue_flag on the right.
@@ -208,29 +210,32 @@ class CTFEnv(ParallelEnv):
 
     def _calculate_reward(self, agent):
         """Calculate the reward of the given agent."""
-        reward = 0
         team = get_team(agent)
 
-        # [1] positive reward if an agent of the team picks up the flag
+        # [1] small time penalty
+        reward = 0
+
+        # [2] positive reward if an agent of the team picks up the flag
         if team == "red" and self.blue_flag_status == 1:
             reward += 10
         elif team == "blue" and self.red_flag_status == 1:
             reward += 10
-        # [2] negative reward if the enemy team picks up the flag
+        # [3] negative reward if the enemy team picks up the flag
         if team == "red" and self.red_flag_status == 1:
             reward -= 10
         elif team == "blue" and self.blue_flag_status == 1:
             reward -= 10
 
-        # [3] positive reward for tagging an enemy TODO
-        # [4] negative reward for being tagged TODO
-        # [5] positive reward for moving toward the enemy flag
+        # [4] positive reward for tagging an enemy TODO
+        # [5] negative reward for being tagged TODO
+        # [6] positive reward for moving toward the enemy flag
+        # TODO maybe calculate reward only if delta distance to flag decreased
         if team == "red":
-            reward += 1 / (np.linalg.norm(self.agent_positions[agent] - self.flag_positions["blue_flag"]) + 1)
+            reward += 10 / (np.linalg.norm(self.agent_positions[agent] - self.flag_positions["blue_flag"]) + 1)
         elif team == "blue":
-            reward += 1 / (np.linalg.norm(self.agent_positions[agent] - self.flag_positions["red_flag"]) + 1)
-        # [6] negative reward for moving away from the own flag TODO maybe drop this
-        # TODO maybe add small time penalty?
+            reward += 10 / (np.linalg.norm(self.agent_positions[agent] - self.flag_positions["red_flag"]) + 1)
+        # [7] negative reward for moving away from the own flag TODO maybe drop this
+
         return reward
 
     def _get_obs(self, agent):
