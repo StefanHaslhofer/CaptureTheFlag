@@ -3,11 +3,13 @@ from pettingzoo import ParallelEnv
 import gymnasium.spaces as spaces
 import numpy as np
 
+
 # TODO implement flag carrying -> first version = instant capture
 
 def get_team(agent):
     """Derive team name from agent name."""
     return agent.split("_")[0]
+
 
 def get_enemy_team(agent):
     return "red" if get_team(agent) == "blue" else "blue"
@@ -16,7 +18,7 @@ def get_enemy_team(agent):
 class CTFEnv(ParallelEnv):
     ENTITY_SIZE = 15
 
-    def __init__(self, width=2000, height=1000, num_of_team_agents=2, config=None):
+    def __init__(self, width=2000, height=1000, num_of_team_agents=2):
         super().__init__()
 
         self.width = width
@@ -155,12 +157,6 @@ class CTFEnv(ParallelEnv):
         pygame.display.flip()
         self.clock.tick(10)
 
-    def observation_space(self, agent):
-        return self.observation_spaces[agent]
-
-    def action_space(self, agent):
-        return self.action_spaces[agent]
-
     def close(self):
         if self.screen is not None:
             pygame.quit()
@@ -168,14 +164,14 @@ class CTFEnv(ParallelEnv):
 
     def _move(self, agent, action):
         pos = self.agent_positions[agent].copy()
-        if action == 1: # up
+        if action == 1:  # up
             pos[1] = max(0, pos[1] - 1)
-        elif action == 2: # down
-            pos[1] = min(self.height, pos[1] + 1)
-        elif action == 3: # left
+        elif action == 2:  # down
+            pos[1] = min(self.height - 1, pos[1] + 1)
+        elif action == 3:  # left
             pos[0] = max(0, pos[0] - 1)
-        elif action == 4: # right
-            pos[0] = min(self.width, pos[0] + 1)
+        elif action == 4:  # right
+            pos[0] = min(self.width - 1, pos[0] + 1)
 
         self.agent_positions[agent] = pos
 
