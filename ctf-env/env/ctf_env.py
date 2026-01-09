@@ -15,14 +15,20 @@ def get_enemy_team(agent):
     return "red" if get_team(agent) == "blue" else "blue"
 
 
+def get_enemy_flag(agent):
+    return "red_flag" if get_team(agent) == "blue_flag" else "blue_flag"
+
+
 class CTFEnv(ParallelEnv):
     SCALE_FACTOR = 15
 
-    def __init__(self, width=84, height=84, num_of_team_agents=2, render_mode="human"):
+    def __init__(self, width=84, height=84, num_of_team_agents=2, render_mode="human", max_steps=1200):
         super().__init__()
 
         self.width = width
         self.height = height
+        self.max_steps = max_steps
+        self.step = 0
         # initialize empty object position dicts
         self.agent_positions = None
         self.flag_positions = None
@@ -71,7 +77,9 @@ class CTFEnv(ParallelEnv):
             np.random.seed(seed)
 
         print("RESET")
+        self.step = 0
         self.flag_carrier = None
+        self.blue_flag_status = self.red_flag_status = 0
 
         # Set initial flag positions.
         # Randomly place red_flag on the left and blue_flag on the right.
@@ -106,10 +114,12 @@ class CTFEnv(ParallelEnv):
         return observations, infos
 
     def step(self, action_dict):
+        self.step += 1
+        d = {}
         # 🎬 carry out actions
         for agent in self.agents:
             action = action_dict[agent]
-            self._move(agent, action["move"])
+            d[agent] = self._move(agent, action["move"])
             self._tag(agent, action["tag"])
 
         # 🚩 check if an agent picked up or captured the enemy flag
@@ -124,18 +134,23 @@ class CTFEnv(ParallelEnv):
 
         # 🏅 calculate rewards for each agent
         rewards = {
-            agent: self._calculate_reward(agent)
+            agent: self._calculate_reward(agent, d[agent])
             for agent in self.agents
         }
 
-        # TODO implement terminations -> own function -> step counter should be part of ctf_env
-        terminations = {agent: self.blue_flag_status == 1 or self.red_flag_status == 1 for agent in self.agents}
+        # ⛔ terminate agents if flag has been captured or maximum number of steps have been reached
+        terminations = {
+            agent: self.blue_flag_status == 1 or self.red_flag_status == 1 or self.step >= self.max_steps
+            for agent in self.agents
+        }
         truncations = {agent: False for agent in self.agents}
         infos = {agent: {} for agent in self.agents}
 
-        self.render()
+        if self.render_mode == "human":
+            self.render()
+        else:
+            print("STEP")
 
-        print(rewards)
         # return observation dict, rewards dict, termination/truncation dicts, and infos dict
         return observations, rewards, terminations, truncations, infos
 
@@ -173,6 +188,12 @@ class CTFEnv(ParallelEnv):
             self.screen = None
 
     def _move(self, agent, action):
+        """ Moves the agent and calculates the change in distance to the enemy flag.
+
+        Returns
+        -------
+        d : distance delta
+        """
         pos = self.agent_positions[agent].copy()
         if action == 1:  # up
             pos[1] = max(0, pos[1] - 1)
@@ -183,7 +204,11 @@ class CTFEnv(ParallelEnv):
         elif action == 4:  # right
             pos[0] = min(self.width - 1, pos[0] + 1)
 
+        efp = self.flag_positions[get_enemy_flag(agent)]
+        d = (np.linalg.norm(self.agent_positions[agent] - efp) - np.linalg.norm(pos - efp))
+
         self.agent_positions[agent] = pos
+        return d
 
     def _tag(self, agent, action):
         # TODO
@@ -198,22 +223,22 @@ class CTFEnv(ParallelEnv):
         The flag is considered captured if the enemy flag's position matches the position of the own flag.
         """
         team = get_team(agent)
-        self.blue_flag_status = self.red_flag_status = 0
 
         if (np.array_equal(self.agent_positions[agent], self.flag_positions[f"{get_enemy_team(agent)}_flag"])
                 and self.flag_carrier is None):
+            print("CAPTURE")
             self.flag_carrier = agent
             if team == "red":
                 self.blue_flag_status = 1
             else:
                 self.red_flag_status = 1
 
-    def _calculate_reward(self, agent):
+    def _calculate_reward(self, agent, delta_distance):
         """Calculate the reward of the given agent."""
         team = get_team(agent)
 
         # [1] small time penalty
-        reward = 0
+        reward = -0.01
 
         # [2] positive reward if an agent of the team picks up the flag
         if team == "red" and self.blue_flag_status == 1:
@@ -231,9 +256,9 @@ class CTFEnv(ParallelEnv):
         # [6] positive reward for moving toward the enemy flag
         # TODO maybe calculate reward only if delta distance to flag decreased
         if team == "red":
-            reward += 10 / (np.linalg.norm(self.agent_positions[agent] - self.flag_positions["blue_flag"]) + 1)
+            reward += delta_distance * 0.1
         elif team == "blue":
-            reward += 10 / (np.linalg.norm(self.agent_positions[agent] - self.flag_positions["red_flag"]) + 1)
+            reward += delta_distance * 0.1
         # [7] negative reward for moving away from the own flag TODO maybe drop this
 
         return reward
