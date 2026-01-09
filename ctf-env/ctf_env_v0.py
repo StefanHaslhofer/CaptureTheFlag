@@ -9,25 +9,24 @@ import argparse
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-# TODO move to arguments
 NUM_OF_ITERATIONS = 100
-ENV_WIDTH = 84
-ENV_HEIGHT = 84
 
 
 def env_creator(config):
     # create petting zoo ctf environment
-    env = CTFEnv(config)
+    env = CTFEnv(config['width'], config['height'], config['num_of_team_agents'], config['render_mode'],
+                 config['max_steps'])
 
     return ParallelPettingZooEnv(env)
 
-def init(render_mode, field_size, model_path, max_steps):
+
+def init(render_mode, field_size, model_path, max_steps, execution_mode):
     data_path = os.path.abspath(model_path)
     env_config = {
         "width": field_size,
         "height": field_size,
-        "render_mode": render_mode,
         "num_of_team_agents": 2,
+        "render_mode": render_mode,
         "max_steps": max_steps
     }
 
@@ -41,11 +40,15 @@ def init(render_mode, field_size, model_path, max_steps):
             policies={"shared_policy"},
             policy_mapping_fn=lambda agent_id, *args, **kwargs: "shared_policy",
         )
-        .env_runners(num_env_runners=1)
-        .training(train_batch_size=1024)
+        .env_runners(
+            num_env_runners=1,
+            num_gpus_per_env_runner=0.5
+        )
+        .training(train_batch_size=4000)
     )
 
     algo = config.build()
+    # algo.restore(data_path)
 
     for i in range(NUM_OF_ITERATIONS):
         results = algo.train()
@@ -60,9 +63,10 @@ def init(render_mode, field_size, model_path, max_steps):
     algo.stop()
     ray.shutdown()
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-     epilog="python ctf_env_v0.py --render_mode human --field_size 84 --model_path ./data --max_steps 1200"
+        epilog="python ctf_env_v0.py --render_mode human --field_size 84 --model_path ./data --max_steps 1200"
     )
 
     parser.add_argument(
@@ -92,6 +96,14 @@ if __name__ == "__main__":
         default=1200,
         help='The maximum number of steps until the environment resets'
     )
+
+    parser.add_argument(
+        '--execution_mode',
+        type=str,
+        default='train',
+        help='The execution mode (train, evaluate)'
+    )
+
     args = parser.parse_args()
 
-    init(args.render_mode, args.field_size, args.model_path, args.max_steps)
+    init(args.render_mode, args.field_size, args.model_path, args.max_steps, args.execution_mode)

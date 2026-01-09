@@ -28,7 +28,7 @@ class CTFEnv(ParallelEnv):
         self.width = width
         self.height = height
         self.max_steps = max_steps
-        self.step = 0
+        self.current_step = 0
         # initialize empty object position dicts
         self.agent_positions = None
         self.flag_positions = None
@@ -42,6 +42,7 @@ class CTFEnv(ParallelEnv):
                 [f"red_{i}" for i in range(num_of_team_agents)] +
                 [f"blue_{i}" for i in range(num_of_team_agents)]
         )
+
         # create observation spaces for all agents
         self.observation_spaces = {
             # Grid observation with different channels for different entity types:
@@ -72,12 +73,8 @@ class CTFEnv(ParallelEnv):
         self.clock = None
 
     def reset(self, *, seed=None, options=None):
-        # TODO implement correct reset after max steps
-        if seed is not None:
-            np.random.seed(seed)
-
         print("RESET")
-        self.step = 0
+        self.current_step = 0
         self.flag_carrier = None
         self.blue_flag_status = self.red_flag_status = 0
 
@@ -114,7 +111,7 @@ class CTFEnv(ParallelEnv):
         return observations, infos
 
     def step(self, action_dict):
-        self.step += 1
+        self.current_step += 1
         d = {}
         # 🎬 carry out actions
         for agent in self.agents:
@@ -140,7 +137,7 @@ class CTFEnv(ParallelEnv):
 
         # ⛔ terminate agents if flag has been captured or maximum number of steps have been reached
         terminations = {
-            agent: self.blue_flag_status == 1 or self.red_flag_status == 1 or self.step >= self.max_steps
+            agent: self.blue_flag_status == 1 or self.red_flag_status == 1 or self.current_step >= self.max_steps
             for agent in self.agents
         }
         truncations = {agent: False for agent in self.agents}
@@ -149,7 +146,7 @@ class CTFEnv(ParallelEnv):
         if self.render_mode == "human":
             self.render()
         else:
-            print("STEP")
+            print(f"STEP {self.current_step}")
 
         # return observation dict, rewards dict, termination/truncation dicts, and infos dict
         return observations, rewards, terminations, truncations, infos
@@ -254,7 +251,6 @@ class CTFEnv(ParallelEnv):
         # [4] positive reward for tagging an enemy TODO
         # [5] negative reward for being tagged TODO
         # [6] positive reward for moving toward the enemy flag
-        # TODO maybe calculate reward only if delta distance to flag decreased
         if team == "red":
             reward += delta_distance * 0.1
         elif team == "blue":
