@@ -35,6 +35,7 @@ def init(render_mode, field_size, model_path, max_steps, execution_mode):
 
     config = (
         PPOConfig()
+        .resources(num_gpus=1, num_gpus_per_learner_worker=1)
         .environment(env="ctf_env", env_config=env_config)
         .multi_agent(
             policies={"shared_policy"},
@@ -42,18 +43,20 @@ def init(render_mode, field_size, model_path, max_steps, execution_mode):
         )
         .env_runners(
             num_env_runners=1,
-            num_gpus_per_env_runner=0.5
+            sample_timeout_s=120
         )
         .training(train_batch_size=4000)
     )
 
     algo = config.build()
-    # algo.restore(data_path)
+    # load checkpoint if execution_mode is set to evaluate
+    if execution_mode != "retrain":
+        algo.restore(data_path)
 
     for i in range(NUM_OF_ITERATIONS):
         results = algo.train()
 
-        if i % 5 == 0:
+        if i % 5 == 0 and execution_mode == "train":
             print(f"Saving data...")
             cp = algo.save(data_path)
             print(f"Checkpoint saved to {cp.checkpoint.path}")
