@@ -10,3 +10,4 @@
 
 1. Problem: Agents learned to stick to the top, change reward structure:
 ![img.png](img.png)
+In general agents sticked to areas where punishment was low (e.g. on the edge of the map just moving left right to minimize punishment), therefore I had to punish them if delta was zero

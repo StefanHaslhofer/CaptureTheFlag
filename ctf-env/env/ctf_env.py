@@ -16,7 +16,7 @@ def get_enemy_team(agent):
 
 
 def get_enemy_flag(agent):
-    return "red_flag" if get_team(agent) == "blue_flag" else "blue_flag"
+    return "red_flag" if get_team(agent) == "blue" else "blue_flag"
 
 
 class CTFEnv(ParallelEnv):
@@ -189,7 +189,7 @@ class CTFEnv(ParallelEnv):
 
         Returns
         -------
-        d : distance delta
+        d : distance delta to the enemy flag
         """
         pos = self.agent_positions[agent].copy()
         if action == 1:  # up
@@ -251,6 +251,7 @@ class CTFEnv(ParallelEnv):
         # [4] positive reward for tagging an enemy TODO
         # [5] negative reward for being tagged TODO
         # [6] positive reward for moving toward the enemy flag
+        # TODO punish if delta does not change
         if team == "red":
             reward += delta_distance * 0.1
         elif team == "blue":

@@ -51,7 +51,10 @@ def init(render_mode, field_size, model_path, max_steps, execution_mode):
     algo = config.build()
     # load checkpoint if execution_mode is set to evaluate
     if execution_mode != "retrain":
-        algo.restore(data_path)
+        try:
+            algo.restore(data_path)
+        except:
+            print("Failed to restore model")
 
     for i in range(NUM_OF_ITERATIONS):
         results = algo.train()
