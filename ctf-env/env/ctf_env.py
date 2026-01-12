@@ -112,11 +112,11 @@ class CTFEnv(ParallelEnv):
 
     def step(self, action_dict):
         self.current_step += 1
-        d = {}
+        delta, d = {}, {}
         # 🎬 carry out actions
         for agent in self.agents:
             action = action_dict[agent]
-            d[agent] = self._move(agent, action["move"])
+            delta[agent], d[agent] = self._move(agent, action["move"])
             self._tag(agent, action["tag"])
 
         # 🚩 check if an agent picked up or captured the enemy flag
@@ -131,7 +131,7 @@ class CTFEnv(ParallelEnv):
 
         # 🏅 calculate rewards for each agent
         rewards = {
-            agent: self._calculate_reward(agent, d[agent])
+            agent: self._calculate_reward(agent, delta[agent], d[agent])
             for agent in self.agents
         }
 
@@ -189,7 +189,8 @@ class CTFEnv(ParallelEnv):
 
         Returns
         -------
-        d : distance delta to the enemy flag
+        delta : distance delta to the enemy flag
+        d     : distance to the enemy flag after move
         """
         pos = self.agent_positions[agent].copy()
         if action == 1:  # up
@@ -202,10 +203,11 @@ class CTFEnv(ParallelEnv):
             pos[0] = min(self.width - 1, pos[0] + 1)
 
         efp = self.flag_positions[get_enemy_flag(agent)]
-        d = (np.linalg.norm(self.agent_positions[agent] - efp) - np.linalg.norm(pos - efp))
+        d = np.linalg.norm(pos - efp)
+        delta = (np.linalg.norm(self.agent_positions[agent] - efp) - np.linalg.norm(pos - efp))
 
         self.agent_positions[agent] = pos
-        return d
+        return delta, d
 
     def _tag(self, agent, action):
         # TODO
@@ -230,33 +232,37 @@ class CTFEnv(ParallelEnv):
             else:
                 self.red_flag_status = 1
 
-    def _calculate_reward(self, agent, delta_distance):
+    def _calculate_reward(self, agent, delta_distance, dist):
         """Calculate the reward of the given agent."""
         team = get_team(agent)
 
         # [1] small time penalty
-        reward = -0.01
+        reward = -0.0001
 
         # [2] positive reward if an agent of the team picks up the flag
         if team == "red" and self.blue_flag_status == 1:
-            reward += 10
+            reward += 100
         elif team == "blue" and self.red_flag_status == 1:
-            reward += 10
+            reward += 100
         # [3] negative reward if the enemy team picks up the flag
         if team == "red" and self.red_flag_status == 1:
-            reward -= 10
+            # reward -= 100
+            None
         elif team == "blue" and self.blue_flag_status == 1:
-            reward -= 10
+            # reward -= 100
+            None
 
         # [4] positive reward for tagging an enemy TODO
         # [5] negative reward for being tagged TODO
-        # [6] positive reward for moving toward the enemy flag
-        # TODO punish if delta does not change
-        if team == "red":
-            reward += delta_distance * 0.1
-        elif team == "blue":
-            reward += delta_distance * 0.1
+        # [6] positive reward for moving toward the enemy flag, reward is increasing the closer the enemy flag gets
+        reward += delta_distance * (1 + 1 / (dist + 0.1))
         # [7] negative reward for moving away from the own flag TODO maybe drop this
+        # [8] negative reward for hitting the border
+        pos = self.agent_positions[agent].copy()
+        if pos[0] <= 0 or pos[0] >= self.height - 1:
+            reward -= 0.1
+        if pos[1] <= 0 or pos[1] >= self.width - 1:
+            reward -= 0.2
 
         return reward
 
@@ -268,10 +274,10 @@ class CTFEnv(ParallelEnv):
 
         for a, pos in self.agent_positions.items():
             # 🔴 check for red team agents
-            if a.startswith("red"):
+            if get_team(agent) == "red":
                 red_agents[pos[1], pos[0]] = 1.0 if a != agent else 0.5
             # 🔵 check for blue team agents
-            if a.startswith("blue"):
+            if get_team(agent) == "blue":
                 blue_agents[pos[1], pos[0]] = 1.0 if a != agent else 0.5
 
         red_flag_pos = self.flag_positions["red_flag"]
