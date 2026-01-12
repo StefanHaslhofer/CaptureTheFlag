@@ -2,6 +2,7 @@ from ray.rllib.algorithms import PPOConfig
 from ray.rllib.env import ParallelPettingZooEnv
 from ray.tune import register_env
 from env.ctf_env import CTFEnv
+from env.ctf_env import get_team
 import ray
 import warnings
 import os
@@ -38,8 +39,13 @@ def init(render_mode, field_size, model_path, max_steps, execution_mode):
         .resources(num_gpus=1, num_gpus_per_learner_worker=1)
         .environment(env="ctf_env", env_config=env_config)
         .multi_agent(
-            policies={"shared_policy"},
-            policy_mapping_fn=lambda agent_id, *args, **kwargs: "shared_policy",
+            policies={
+                "red_policy": (None, None, None, {}),
+                "blue_policy": (None, None, None, {}),
+            },
+            policy_mapping_fn=lambda agent_id, episode, **kwargs: (
+                f"{get_team(agent_id)}_policy"
+            ),
         )
         .env_runners(
             num_env_runners=1,
@@ -57,9 +63,9 @@ def init(render_mode, field_size, model_path, max_steps, execution_mode):
             print("Failed to restore model")
 
     for i in range(NUM_OF_ITERATIONS):
-        results = algo.train()
+        result = algo.train()
 
-        if i % 5 == 0 and execution_mode == "train":
+        if i % 5 == 0 and (execution_mode == "train" or execution_mode == "retrain"):
             print(f"Saving data...")
             cp = algo.save(data_path)
             print(f"Checkpoint saved to {cp.checkpoint.path}")

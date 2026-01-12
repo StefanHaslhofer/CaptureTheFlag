@@ -221,7 +221,7 @@ class CTFEnv(ParallelEnv):
         """
         team = get_team(agent)
 
-        if (np.array_equal(self.agent_positions[agent], self.flag_positions[f"{get_enemy_team(agent)}_flag"])
+        if (np.array_equal(self.agent_positions[agent], self.flag_positions[get_enemy_flag(agent)])
                 and self.flag_carrier is None):
             print("CAPTURE")
             self.flag_carrier = agent
