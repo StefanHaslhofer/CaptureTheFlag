@@ -1,41 +1,121 @@
 from ray.rllib.algorithms import PPOConfig
 from ray.rllib.env import ParallelPettingZooEnv
 from ray.tune import register_env
-import gymnasium.spaces as spaces
-import numpy as np
-
 from env.ctf_env import CTFEnv
+from env.ctf_env import get_team
+import ray
+import warnings
+import os
+import argparse
 
-# TODO move to arguments
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+
 NUM_OF_ITERATIONS = 100
-ENV_WIDTH = 96
-ENV_HEIGHT = 96
 
 
-def env_creator(_config):
+def env_creator(config):
     # create petting zoo ctf environment
-    env = CTFEnv(width=ENV_WIDTH, height=ENV_HEIGHT)
+    env = CTFEnv(config['width'], config['height'], config['num_of_team_agents'], config['render_mode'],
+                 config['max_steps'])
+
     return ParallelPettingZooEnv(env)
 
 
-if __name__ == "__main__":
-    register_env("ctf_env", env_creator)
+def init(render_mode, field_size, model_path, max_steps, execution_mode):
+    data_path = os.path.abspath(model_path)
+    env_config = {
+        "width": field_size,
+        "height": field_size,
+        "num_of_team_agents": 2,
+        "render_mode": render_mode,
+        "max_steps": max_steps
+    }
 
-    obs_space =  spaces.Box(0, 1, (ENV_HEIGHT, ENV_WIDTH, 5), np.float32)
+    ray.init()
+    register_env("ctf_env", env_creator)
 
     config = (
         PPOConfig()
-        .environment("ctf_env")
+        .resources(num_gpus=1, num_gpus_per_learner_worker=1)
+        .environment(env="ctf_env", env_config=env_config)
         .multi_agent(
             policies={
-                "shared_policy": (None, obs_space, None, {})
-            }
+                "red_policy": (None, None, None, {}),
+                "blue_policy": (None, None, None, {}),
+            },
+            policy_mapping_fn=lambda agent_id, episode, **kwargs: (
+                f"{get_team(agent_id)}_policy"
+            ),
         )
-        .env_runners(num_env_runners=2)
+        .env_runners(
+            num_env_runners=1,
+            sample_timeout_s=120
+        )
+        .training(train_batch_size=4000, entropy_coeff=0.01)
     )
 
     algo = config.build()
+    # load checkpoint if execution_mode is set to evaluate
+    if execution_mode != "retrain":
+        try:
+            algo.restore(data_path)
+        except:
+            print("Failed to restore model")
 
     for i in range(NUM_OF_ITERATIONS):
-        train_result = algo.train()
-        None
+        result = algo.train()
+
+        if i % 5 == 0 and (execution_mode == "train" or execution_mode == "retrain"):
+            print(f"Saving data...")
+            cp = algo.save(data_path)
+            print(f"Checkpoint saved to {cp.checkpoint.path}")
+
+        print(f"Iteration {i}: reward {0}")
+
+    algo.stop()
+    ray.shutdown()
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        epilog="python ctf_env_v0.py --render_mode human --field_size 84 --model_path ./data --max_steps 1200"
+    )
+
+    parser.add_argument(
+        '--render_mode',
+        type=str,
+        default='non_human',
+        help='Set environment render mode (non-human, human)'
+    )
+
+    parser.add_argument(
+        '--field_size',
+        type=int,
+        default=84,
+        help='The size of the field to use (n, n)'
+    )
+
+    parser.add_argument(
+        '--model_path',
+        type=str,
+        default='./data',
+        help='Path to the saved model'
+    )
+
+    parser.add_argument(
+        '--max_steps',
+        type=int,
+        default=1200,
+        help='The maximum number of steps until the environment resets'
+    )
+
+    parser.add_argument(
+        '--execution_mode',
+        type=str,
+        default='train',
+        help='The execution mode (train, evaluate)'
+    )
+
+    args = parser.parse_args()
+
+    init(args.render_mode, args.field_size, args.model_path, args.max_steps, args.execution_mode)
