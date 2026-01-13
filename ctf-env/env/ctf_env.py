@@ -20,6 +20,11 @@ def get_enemy_flag(agent):
     return "red_flag" if get_team(agent) == "blue" else "blue_flag"
 
 
+def print_heatmap(a):
+    plt.imshow(a, cmap='hot', interpolation='nearest')
+    plt.show()
+
+
 class CTFEnv(ParallelEnv):
     SCALE_FACTOR = 15
     CAPTURE_RADIUS = 4
@@ -80,6 +85,7 @@ class CTFEnv(ParallelEnv):
         self.blue_flag_status = self.red_flag_status = 0
 
         self.reward_heatmap = np.zeros((self.height, self.width))
+        print_heatmap(self.reward_heatmap)
         # Set initial flag positions.
         # Randomly place red_flag on the left and blue_flag on the right.
         self.flag_positions = {
@@ -317,7 +323,3 @@ class CTFEnv(ParallelEnv):
                                self.SCALE_FACTOR)
             pygame.draw.circle(self.screen, color, (pos[0] * self.SCALE_FACTOR, pos[1] * self.SCALE_FACTOR),
                                self.CAPTURE_RADIUS * self.SCALE_FACTOR, 2)
-
-    def _print_rewards(self):
-        plt.imshow(self.reward_heatmap, cmap='hot', interpolation='nearest')
-        plt.show()
