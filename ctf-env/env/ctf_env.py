@@ -22,6 +22,7 @@ def get_enemy_flag(agent):
 
 class CTFEnv(ParallelEnv):
     SCALE_FACTOR = 15
+    CAPTURE_RADIUS = 4
 
     def __init__(self, width=84, height=84, num_of_team_agents=2, render_mode="human", max_steps=1200):
         super().__init__()
@@ -77,7 +78,6 @@ class CTFEnv(ParallelEnv):
         self.current_step = 0
         self.flag_carrier = None
         self.blue_flag_status = self.red_flag_status = 0
-
 
         self.reward_heatmap = np.zeros((self.height, self.width))
         # Set initial flag positions.
@@ -314,8 +314,10 @@ class CTFEnv(ParallelEnv):
             pos = self.flag_positions[flag]
             color = get_team(flag)
             pygame.draw.circle(self.screen, color, (pos[0] * self.SCALE_FACTOR, pos[1] * self.SCALE_FACTOR),
-                               self.SCALE_FACTOR + 2, 2)
+                               self.SCALE_FACTOR)
+            pygame.draw.circle(self.screen, color, (pos[0] * self.SCALE_FACTOR, pos[1] * self.SCALE_FACTOR),
+                               self.CAPTURE_RADIUS * self.SCALE_FACTOR, 2)
 
     def _print_rewards(self):
-        plt.imshow(a, cmap='hot', interpolation='nearest')
+        plt.imshow(self.reward_heatmap, cmap='hot', interpolation='nearest')
         plt.show()
