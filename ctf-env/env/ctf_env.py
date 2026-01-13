@@ -2,6 +2,7 @@ import pygame
 from pettingzoo import ParallelEnv
 from gymnasium import spaces
 import numpy as np
+import matplotlib.pyplot as plt
 
 
 # TODO implement flag carrying -> first version = instant capture
@@ -29,10 +30,10 @@ class CTFEnv(ParallelEnv):
         self.height = height
         self.max_steps = max_steps
         self.current_step = 0
+        self.reward_heatmap = np.zeros((height, width))
         # initialize empty object position dicts
         self.agent_positions = None
         self.flag_positions = None
-        # TODO create Flag class that hold information about flag status and carrier
         self.red_flag_status = 0
         self.blue_flag_status = 0
         self.flag_carrier = None
@@ -56,7 +57,6 @@ class CTFEnv(ParallelEnv):
             for agent in self.agents
         }
         # create action spaces for all agents
-        # TODO maybe introduce direction, otherwise agents would always tag one another
         self.action_spaces = {
             agent: spaces.Dict({
                 # 5 possible movements: stay, up, down, left, right
@@ -78,6 +78,8 @@ class CTFEnv(ParallelEnv):
         self.flag_carrier = None
         self.blue_flag_status = self.red_flag_status = 0
 
+
+        self.reward_heatmap = np.zeros((self.height, self.width))
         # Set initial flag positions.
         # Randomly place red_flag on the left and blue_flag on the right.
         self.flag_positions = {
@@ -254,9 +256,14 @@ class CTFEnv(ParallelEnv):
 
         # [4] positive reward for tagging an enemy TODO
         # [5] negative reward for being tagged TODO
-        # [6] positive reward for moving toward the enemy flag, reward is increasing the closer the enemy flag gets
-        reward += delta_distance * (1 + 1 / (dist + 0.1))
-        # [7] negative reward for moving away from the own flag TODO maybe drop this
+        # [6] positive reward for moving toward the enemy flag, smaller negative reward for moving away from enemy flag
+        # TODO maybe reward should increase the closer the enemy flag gets (no sparese reward?)
+        if delta_distance > 0:
+            # reward += delta_distance * (1 / (dist + 0.1))
+            reward += delta_distance
+        else:
+            reward += delta_distance * 0.2
+        # [7] negative reward for changing movements (energy reward shaping)
         # [8] negative reward for hitting the border
         pos = self.agent_positions[agent].copy()
         if pos[0] <= 0 or pos[0] >= self.height - 1:
@@ -308,3 +315,7 @@ class CTFEnv(ParallelEnv):
             color = get_team(flag)
             pygame.draw.circle(self.screen, color, (pos[0] * self.SCALE_FACTOR, pos[1] * self.SCALE_FACTOR),
                                self.SCALE_FACTOR + 2, 2)
+
+    def _print_rewards(self):
+        plt.imshow(a, cmap='hot', interpolation='nearest')
+        plt.show()
