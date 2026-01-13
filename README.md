@@ -15,3 +15,6 @@ In general agents sticked to areas where punishment was low (e.g. on the edge of
 3. Introduce more reward for closing in on the enemy flag, higher entropy to encourage exploration, more reward for capturing the flag.
 4. Time penalty too large relative to movement reward: -0.01 per step. The corner behavior makes perfect sense: the agents learned that doing nothing loses less reward than random wandering!
 5. Add penalty for hitting the edge of the playing field.
+
+Example with corner:
+![img_1.png](img_1.png)

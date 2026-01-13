@@ -1,6 +1,9 @@
 from ray.rllib.algorithms import PPOConfig
 from ray.rllib.env import ParallelPettingZooEnv
 from ray.tune import register_env
+from ray import tune
+from ray.tune.schedulers import ASHAScheduler
+
 from env.ctf_env import CTFEnv
 from env.ctf_env import get_team
 import ray
@@ -36,7 +39,7 @@ def init(render_mode, field_size, model_path, max_steps, execution_mode):
 
     config = (
         PPOConfig()
-        .resources(num_gpus=1, num_gpus_per_learner_worker=1)
+        .resources(num_gpus=1, num_gpus_per_learner_worker=0.25)
         .environment(env="ctf_env", env_config=env_config)
         .multi_agent(
             policies={
@@ -48,32 +51,53 @@ def init(render_mode, field_size, model_path, max_steps, execution_mode):
             ),
         )
         .env_runners(
-            num_env_runners=1,
+            num_env_runners=4,
             sample_timeout_s=120
         )
-        .training(train_batch_size=4000, entropy_coeff=0.01)
+        .training(train_batch_size=tune.choice([4000, 8000, 16000]), entropy_coeff=0.01)
     )
 
-    algo = config.build()
-    # load checkpoint if execution_mode is set to evaluate
-    if execution_mode != "retrain":
-        try:
-            algo.restore(data_path)
-        except:
-            print("Failed to restore model")
+    scheduler = ASHAScheduler(
+        metric="env_runners/episode_return_mean",
+        mode="max",
+        max_t=2000,
+        grace_period=200,
+        reduction_factor=3,
+    )
 
-    for i in range(NUM_OF_ITERATIONS):
-        result = algo.train()
+    tuner = tune.Tuner(
+        "PPO",
+        param_space=config.to_dict(),
+        run_config=tune.RunConfig(
+            name="ppo_ctf_training",
+            stop={
+                "training_iteration": 2000,
+                "env_runners/episode_return_mean": 500,
+            },
+            checkpoint_config=tune.CheckpointConfig(
+                checkpoint_at_end=True,
+                checkpoint_frequency=10,
+                num_to_keep=3
+            ),
+            storage_path=data_path,
+        ),
+        tune_config=tune.TuneConfig(
+            num_samples=10,
+            scheduler=scheduler,
+        ),
+    )
 
-        if i % 5 == 0 and (execution_mode == "train" or execution_mode == "retrain"):
-            print(f"Saving data...")
-            cp = algo.save(data_path)
-            print(f"Checkpoint saved to {cp.checkpoint.path}")
+    results = tuner.fit()
 
-        print(f"Iteration {i}: reward {0}")
+    # Get the best trial
+    best_result = results.get_best_result(
+        metric="env_runners/episode_return_mean",
+        mode="max"
+    )
 
-    algo.stop()
-    ray.shutdown()
+    print(f"Best trial config: {best_result.config}")
+    print(f"Best trial final return: {best_result.metrics['env_runners/episode_return_mean']}")
+    print(f"Best checkpoint: {best_result.checkpoint}")
 
 
 if __name__ == "__main__":

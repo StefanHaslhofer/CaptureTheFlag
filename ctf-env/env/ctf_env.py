@@ -85,7 +85,9 @@ class CTFEnv(ParallelEnv):
         self.blue_flag_status = self.red_flag_status = 0
 
         self.reward_heatmap = np.zeros((self.height, self.width))
-        print_heatmap(self.reward_heatmap)
+        if self.render_mode == "human":
+            print_heatmap(self.reward_heatmap)
+
         # Set initial flag positions.
         # Randomly place red_flag on the left and blue_flag on the right.
         self.flag_positions = {
