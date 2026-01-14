@@ -3,6 +3,7 @@ from pettingzoo import ParallelEnv
 from gymnasium import spaces
 import numpy as np
 import matplotlib.pyplot as plt
+from dataclasses import dataclass
 
 
 # TODO implement flag carrying -> first version = instant capture
@@ -28,6 +29,7 @@ def print_heatmap(a):
 class CTFEnv(ParallelEnv):
     SCALE_FACTOR = 15
     CAPTURE_RADIUS = 4
+    TAG_RADIUS = 2
 
     def __init__(self, width=84, height=84, num_of_team_agents=2, render_mode="human", max_steps=1200):
         super().__init__()
@@ -64,12 +66,8 @@ class CTFEnv(ParallelEnv):
         }
         # create action spaces for all agents
         self.action_spaces = {
-            agent: spaces.Dict({
-                # 5 possible movements: stay, up, down, left, right
-                "move": spaces.Discrete(5),
-                # 5 possible tag actions: none, tag up, tag down, tag left, tag right
-                "tag": spaces.Discrete(5)
-            })
+            # 6 possible movements: stay, up, down, left, right, tag
+            agent: spaces.Discrete(6)
             for agent in self.agents
         }
 
@@ -85,9 +83,8 @@ class CTFEnv(ParallelEnv):
         self.blue_flag_status = self.red_flag_status = 0
 
         self.reward_heatmap = np.zeros((self.height, self.width))
-        if self.render_mode == "human":
-            # print_heatmap(self.reward_heatmap)
-            None
+        if self.render_mode == "debug":
+            print_heatmap(self.reward_heatmap)
 
         # Set initial flag positions.
         # Randomly place red_flag on the left and blue_flag on the right.
@@ -99,16 +96,9 @@ class CTFEnv(ParallelEnv):
 
         # set initial agent positions
         self.agent_positions = {
-                                   agent: np.array(
-                                       [np.random.randint(0, high=self.width // 6),
-                                        np.random.randint(0, high=self.height)])
-                                   for agent in self.agents if get_team(agent) == "red"
-                               } | {
-                                   agent: np.array(
-                                       [np.random.randint(self.width // 6 * 5, high=self.width),
-                                        np.random.randint(0, high=self.height)])
-                                   for agent in self.agents if get_team(agent) == "blue"
-                               }
+            agent: self._reset_agent_position(agent)
+            for agent in self.agents
+        }
 
         # TODO set obstacle positions
 
@@ -123,12 +113,15 @@ class CTFEnv(ParallelEnv):
 
     def step(self, action_dict):
         self.current_step += 1
-        delta, d = {}, {}
+        delta, d, t = {}, {}, {}
         # 🎬 carry out actions
         for agent in self.agents:
             action = action_dict[agent]
-            delta[agent], d[agent] = self._move(agent, action["move"])
-            self._tag(agent, action["tag"])
+            # call move logic
+            delta[agent], d[agent] = self._move(agent, action)
+            # action index == 5 -> tag
+            if action == 5:
+                t[agent] = self._tag(agent)
 
         # 🚩 check if an agent picked up or captured the enemy flag
         for agent in self.agents:
@@ -142,7 +135,7 @@ class CTFEnv(ParallelEnv):
 
         # 🏅 calculate rewards for each agent
         rewards = {
-            agent: self._calculate_reward(agent, delta[agent], d[agent])
+            agent: self._calculate_reward(agent, delta[agent], d[agent], t)
             for agent in self.agents
         }
 
@@ -218,9 +211,24 @@ class CTFEnv(ParallelEnv):
         self.agent_positions[agent] = pos
         return delta, d
 
-    def _tag(self, agent, action):
-        # TODO
-        None
+    def _tag(self, agent):
+        """
+        Check if an agent successfully tagged an enemy.
+
+        Returns
+        -------
+        The enemy agent if the tag was successful, otherwise the original agent itself.
+        """
+        for other in self.agents:
+            # agent has to be in enemy team and within tagging distance
+            if (get_team(agent) != get_team(other)
+                    and np.linalg.norm(
+                        self.agent_positions[agent] - self.agent_positions[other]) <= self.CAPTURE_RADIUS):
+                print(f"TAGGED {agent} -> {other}")
+                self.agent_positions[other] = self._reset_agent_position(other)
+                return other
+
+        return agent
 
     def _update_flag_status(self, agent):
         """Check the status of the enemy flag based on the positions of the agent and flags.
@@ -232,7 +240,8 @@ class CTFEnv(ParallelEnv):
         """
         team = get_team(agent)
 
-        if (np.linalg.norm(self.agent_positions[agent] - self.flag_positions[get_enemy_flag(agent)]) < self.CAPTURE_RADIUS
+        if (np.linalg.norm(
+                self.agent_positions[agent] - self.flag_positions[get_enemy_flag(agent)]) < self.CAPTURE_RADIUS
                 and self.flag_carrier is None):
             print(f"CAPTURE AT STEP {self.current_step}")
             self.flag_carrier = agent
@@ -241,7 +250,7 @@ class CTFEnv(ParallelEnv):
             else:
                 self.red_flag_status = 1
 
-    def _calculate_reward(self, agent, delta_distance, dist):
+    def _calculate_reward(self, agent, delta_distance, _dist, tags):
         """Calculate the reward of the given agent."""
         team = get_team(agent)
 
@@ -255,28 +264,21 @@ class CTFEnv(ParallelEnv):
             reward += 100
         # [3] negative reward if the enemy team picks up the flag
         if team == "red" and self.red_flag_status == 1:
-            # reward -= 100
-            None
+            reward -= 100
         elif team == "blue" and self.blue_flag_status == 1:
-            # reward -= 100
-            None
+            reward -= 100
 
-        # [4] positive reward for tagging an enemy TODO
-        # [5] negative reward for being tagged TODO
-        # [6] positive reward for moving toward the enemy flag, smaller negative reward for moving away from enemy flag
-        # TODO maybe reward should increase the closer the enemy flag gets (no sparese reward?)
-        if delta_distance > 0:
-            # reward += delta_distance * (1 / (dist + 0.1))
-            reward += delta_distance
-        else:
-            reward += delta_distance * 0.2
-        # [7] negative reward for changing movements (energy reward shaping)
-        # [8] negative reward for hitting the border
-        pos = self.agent_positions[agent].copy()
-        if pos[0] <= 0 or pos[0] >= self.height - 1:
-            reward -= 0.1
-        if pos[1] <= 0 or pos[1] >= self.width - 1:
-            reward -= 0.2
+        # [4] positive reward for tagging an enemy, negative reward for wrong tagging
+        if agent in tags:
+            reward += 10 if tags[agent] != agent else -2
+        # [5] negative reward for being tagged (exclude agent key because an agent cannot tag itself)
+        for val in list([v for k, v in tags.items() if k != agent]):
+            if val == agent:
+                reward -= 10
+
+        # [6] positive reward for moving toward the enemy flag
+        reward += max(0, delta_distance)
+        # [7] TODO maybe negative reward for changing movements (energy reward shaping)
 
         return reward
 
@@ -315,6 +317,9 @@ class CTFEnv(ParallelEnv):
             color = get_team(agent)
             pygame.draw.circle(self.screen, color, (pos[0] * self.SCALE_FACTOR, pos[1] * self.SCALE_FACTOR),
                                self.SCALE_FACTOR)
+            # draw tag radius
+            pygame.draw.circle(self.screen, 'gray', (pos[0] * self.SCALE_FACTOR, pos[1] * self.SCALE_FACTOR),
+                               self.TAG_RADIUS * self.SCALE_FACTOR, 1)
 
     def _draw_flags(self):
         for flag in self.flag_positions:
@@ -322,5 +327,19 @@ class CTFEnv(ParallelEnv):
             color = get_team(flag)
             pygame.draw.circle(self.screen, color, (pos[0] * self.SCALE_FACTOR, pos[1] * self.SCALE_FACTOR),
                                self.SCALE_FACTOR)
+            # draw capture radius
             pygame.draw.circle(self.screen, color, (pos[0] * self.SCALE_FACTOR, pos[1] * self.SCALE_FACTOR),
                                self.CAPTURE_RADIUS * self.SCALE_FACTOR, 2)
+
+    def _reset_agent_position(self, agent):
+        if get_team(agent) == "red":
+            return np.array(
+                [np.random.randint(0, high=self.width // 6), np.random.randint(0, high=self.height)]
+            )
+
+        if get_team(agent) == "blue":
+            return np.array(
+                [np.random.randint(self.width // 6 * 5, high=self.width), np.random.randint(0, high=self.height)]
+            )
+
+        return None
