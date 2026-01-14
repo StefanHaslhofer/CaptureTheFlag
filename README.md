@@ -18,3 +18,5 @@ In general agents sticked to areas where punishment was low (e.g. on the edge of
 
 Example with corner:
 ![img_1.png](img_1.png)
+
+ppo_v3 --> good example for reward hacking

@@ -86,7 +86,8 @@ class CTFEnv(ParallelEnv):
 
         self.reward_heatmap = np.zeros((self.height, self.width))
         if self.render_mode == "human":
-            print_heatmap(self.reward_heatmap)
+            # print_heatmap(self.reward_heatmap)
+            None
 
         # Set initial flag positions.
         # Randomly place red_flag on the left and blue_flag on the right.
@@ -155,8 +156,6 @@ class CTFEnv(ParallelEnv):
 
         if self.render_mode == "human":
             self.render()
-        else:
-            print(f"STEP {self.current_step}")
 
         # return observation dict, rewards dict, termination/truncation dicts, and infos dict
         return observations, rewards, terminations, truncations, infos
@@ -233,9 +232,9 @@ class CTFEnv(ParallelEnv):
         """
         team = get_team(agent)
 
-        if (np.array_equal(self.agent_positions[agent], self.flag_positions[get_enemy_flag(agent)])
+        if (np.linalg.norm(self.agent_positions[agent] - self.flag_positions[get_enemy_flag(agent)]) < self.CAPTURE_RADIUS
                 and self.flag_carrier is None):
-            print("CAPTURE")
+            print(f"CAPTURE AT STEP {self.current_step}")
             self.flag_carrier = agent
             if team == "red":
                 self.blue_flag_status = 1
