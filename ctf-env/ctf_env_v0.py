@@ -146,6 +146,8 @@ def init(render_mode, field_size, model_path, max_steps, execution_mode):
         )
 
         results = tuner.fit()
+        evaluate(results)
+
     elif execution_mode == "evaluate":
         tuner = Tuner.restore(f"{data_path}/{RUN_CONFIG_NAME}", trainable="PPO")
         results = tuner.get_results()
