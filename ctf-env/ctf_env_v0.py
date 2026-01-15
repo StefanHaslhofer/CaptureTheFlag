@@ -110,7 +110,7 @@ def init(render_mode, field_size, model_path, max_steps, execution_mode):
             num_env_runners=1,
             sample_timeout_s=240
         )
-        .training(train_batch_size=tune.choice([4000, 8000]), entropy_coeff=0.01)
+        .training(train_batch_size=4000, entropy_coeff=0.01)
     )
 
     scheduler = ASHAScheduler(
