@@ -255,7 +255,7 @@ class CTFEnv(ParallelEnv):
         team = get_team(agent)
 
         # [1] small time penalty
-        reward = -0.001
+        reward = -0.01
 
         # [2] positive reward if an agent of the team picks up the flag
         if team == "red" and self.blue_flag_status == 1:

@@ -1,6 +1,7 @@
-from ray.rllib.policy.policy import Policy
+from ray.rllib.algorithms.ppo import PPO
 from ray.rllib.algorithms import PPOConfig, Algorithm
 from ray.rllib.env import ParallelPettingZooEnv
+from ray.rllib.env.multi_agent_env_runner import MultiAgentEnvRunner
 from ray.tune import register_env
 from ray.tune import Tuner
 from ray import tune
@@ -40,42 +41,26 @@ def evaluate(results):
     return best_result.checkpoint
 
 
-def test_env(checkpoint, env_config):
+def test_env(checkpoint):
     """Generate and render a test environment for checkpoint evaluation by human reviewers."""
     algo = Algorithm.from_checkpoint(checkpoint)
-    env = env_creator(env_config)
-    policies = {
-        'red_policy': algo.env_runner.module["red_policy"],
-        'blue_policy': algo.env_runner.module["blue_policy"]
-    }
 
-    obs, info = env.reset()
+    # Create env runner
+    env_runner = MultiAgentEnvRunner(
+        config=algo.config,
+    )
 
-    episode_rewards = {agent: 0 for agent in env.agents}
-    terminated = {agent: False for agent in env.agents}
-    truncated = {agent: False for agent in env.agents}
+    # Set weights from checkpoint
+    env_runner.set_weights(algo.get_weights())
 
-    while not all(terminated.values()) and not all(truncated.values()):
-        action_dict = {}
-        for agent_id, agent_obs in obs.items():
-            if not (terminated.get(agent_id, False) or truncated.get(agent_id, False)):
-                policy = policies[f"{get_team(agent_id)}_policy"]
+    # Sample episodes (this uses RLModule internally)
+    samples = env_runner.sample(
+        num_episodes=10,
+        explore=False,  # Deterministic actions for evaluation
+    )
 
-                obs_batch = {"obs": torch.from_numpy(np.array([agent_obs])).float()}
-                module_output = policy.forward_inference(obs_batch)
-                action = module_output["action_dist_inputs"][0]
-
-                # RLlib concatenates logits for all action components
-                action_dict[agent_id] = np.argmax(action)
-
-        obs, rewards, terminated, truncated, info = env.step(action_dict)
-
-        # Track rewards
-        for agent_id, reward in rewards.items():
-            episode_rewards[agent_id] += reward
-
-    print(f"Episode reward: {episode_rewards}")
-    env.close()
+    # Extract results
+    print(f"Episode returns: {samples.env_runner_results}")
 
 
 def init(render_mode, field_size, model_path, max_steps, execution_mode):
@@ -105,7 +90,8 @@ def init(render_mode, field_size, model_path, max_steps, execution_mode):
         )
         .env_runners(
             num_env_runners=1,
-            sample_timeout_s=240
+            sample_timeout_s=240,
+            explore=True
         )
         .training(train_batch_size=4000, entropy_coeff=0.01)
     )
@@ -145,12 +131,24 @@ def init(render_mode, field_size, model_path, max_steps, execution_mode):
         results = tuner.fit()
         evaluate(results)
 
+    elif execution_mode == "train":
+        tuner = Tuner.restore(
+            path=f"{data_path}/{RUN_CONFIG_NAME}",
+            trainable="PPO",
+            resume_errored=True,
+            restart_errored=False
+        )
+
+        # continue training
+        results = tuner.fit()
+        evaluate(results)
+
     elif execution_mode == "evaluate":
         tuner = Tuner.restore(f"{data_path}/{RUN_CONFIG_NAME}", trainable="PPO")
         results = tuner.get_results()
 
         best_checkpoint = evaluate(results)
-        test_env(best_checkpoint, env_config)
+        test_env(best_checkpoint)
 
 
 if __name__ == "__main__":
