@@ -33,3 +33,7 @@ else:
 ```
 
 Then I tried no penalty for moving away from enemy flag to reduce agents fleeing to corners out of fear from penalties.
+
+Then agents just went to the other side of the map and then standing still -> time penalty was too low.
+Also still reward hacking -> I moved to only sparse rewards as suggested in the [paper](https://arxiv.org/pdf/2311.16339)
+![img_2.png](img_2.png)

@@ -66,10 +66,7 @@ def test_env(checkpoint, env_config):
                 action = module_output["action_dist_inputs"][0]
 
                 # RLlib concatenates logits for all action components
-                action_dict[agent_id] = {
-                    "move": np.argmax(action[:5]),
-                    "tag": np.argmax(action[5:])
-                }
+                action_dict[agent_id] = np.argmax(action)
 
         obs, rewards, terminated, truncated, info = env.step(action_dict)
 

@@ -255,29 +255,27 @@ class CTFEnv(ParallelEnv):
         team = get_team(agent)
 
         # [1] small time penalty
-        reward = -0.0001
+        reward = -0.001
 
         # [2] positive reward if an agent of the team picks up the flag
         if team == "red" and self.blue_flag_status == 1:
-            reward += 100
+            reward += 10
         elif team == "blue" and self.red_flag_status == 1:
-            reward += 100
+            reward += 10
         # [3] negative reward if the enemy team picks up the flag
         if team == "red" and self.red_flag_status == 1:
-            reward -= 100
+            reward -= 10
         elif team == "blue" and self.blue_flag_status == 1:
-            reward -= 100
+            reward -= 10
 
         # [4] positive reward for tagging an enemy, negative reward for wrong tagging
         if agent in tags:
-            reward += 10 if tags[agent] != agent else -2
+            reward += 2 if tags[agent] != agent else -0.2
         # [5] negative reward for being tagged (exclude agent key because an agent cannot tag itself)
         for val in list([v for k, v in tags.items() if k != agent]):
             if val == agent:
-                reward -= 10
+                reward -= 2
 
-        # [6] positive reward for moving toward the enemy flag
-        reward += max(0, delta_distance)
         # [7] TODO maybe negative reward for changing movements (energy reward shaping)
 
         return reward
