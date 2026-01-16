@@ -25,6 +25,12 @@ def print_heatmap(a):
     plt.imshow(a, cmap='hot', interpolation='nearest')
     plt.show()
 
+def visualize_channel(obs, channel):
+    grid = obs[:, :, channel]
+    print(grid)
+
+    return grid
+
 
 class CTFEnv(ParallelEnv):
     SCALE_FACTOR = 15
@@ -52,6 +58,11 @@ class CTFEnv(ParallelEnv):
                 [f"blue_{i}" for i in range(num_of_team_agents)]
         )
 
+        self.cumulative_rewards = {
+            agent: 0
+            for agent in self.agents
+        }
+
         # create observation spaces for all agents
         self.observation_spaces = {
             # Grid observation with different channels for different entity types:
@@ -61,7 +72,7 @@ class CTFEnv(ParallelEnv):
             #   Channel 2: red flag location
             #   Channel 3: blue flag location
             #   Channel 4: obstacle location
-            agent: spaces.Box(0, 1, (self.height, self.width, 5), np.float16)
+            agent: spaces.Box(0, 1, (self.height, self.width, 5), np.float32)
             for agent in self.agents
         }
         # create action spaces for all agents
@@ -89,14 +100,18 @@ class CTFEnv(ParallelEnv):
         # Set initial flag positions.
         # Randomly place red_flag on the left and blue_flag on the right.
         self.flag_positions = {
-            "red_flag": np.array([np.random.randint(0, high=self.width // 6), np.random.randint(0, high=self.height)]),
-            "blue_flag": np.array(
-                [np.random.randint(self.width // 6 * 5, high=self.width), np.random.randint(0, high=self.height)])
+            "red_flag": self._random_flag_position("red_flag"),
+            "blue_flag": self._random_flag_position("blue_flag")
+        }
+
+        self.cumulative_rewards = {
+            agent: 0
+            for agent in self.agents
         }
 
         # set initial agent positions
         self.agent_positions = {
-            agent: self._reset_agent_position(agent)
+            agent: self._random_agent_position(agent)
             for agent in self.agents
         }
 
@@ -108,6 +123,7 @@ class CTFEnv(ParallelEnv):
             for agent in self.agents
         }
 
+        visualize_channel(observations['red_0'], 1)
         infos = {agent: {} for agent in self.agents}
         return observations, infos
 
@@ -125,7 +141,7 @@ class CTFEnv(ParallelEnv):
 
         # 🚩 check if an agent picked up or captured the enemy flag
         for agent in self.agents:
-            self._update_flag_status(agent)
+            self._check_flag_capture(agent)
 
         # 🔬 get new observations after movements
         observations = {
@@ -139,9 +155,15 @@ class CTFEnv(ParallelEnv):
             for agent in self.agents
         }
 
-        # ⛔ terminate agents if flag has been captured or maximum number of steps have been reached
+        # 🔙 reset captured flag and flag carrier position
+        if self.red_flag_status == 1:
+            self._reset_captured_flag("red_flag")
+        if self.blue_flag_status == 1:
+            self._reset_captured_flag("blue_flag")
+
+        # ⛔ terminate if maximum number of steps have been reached
         terminations = {
-            agent: self.blue_flag_status == 1 or self.red_flag_status == 1 or self.current_step >= self.max_steps
+            agent: self.current_step >= self.max_steps
             for agent in self.agents
         }
         truncations = {agent: False for agent in self.agents}
@@ -149,6 +171,10 @@ class CTFEnv(ParallelEnv):
 
         if self.render_mode == "human":
             self.render()
+
+        # 🖨️ print rewards if environment is about to be terminated
+        if all(terminations.values()):
+            print(self.cumulative_rewards)
 
         # return observation dict, rewards dict, termination/truncation dicts, and infos dict
         return observations, rewards, terminations, truncations, infos
@@ -173,7 +199,7 @@ class CTFEnv(ParallelEnv):
         self._draw_flags()
 
         pygame.display.flip()
-        self.clock.tick(20)
+        self.clock.tick(30)
 
     def observation_space(self, agent):
         return self.observation_spaces[agent]
@@ -225,12 +251,12 @@ class CTFEnv(ParallelEnv):
                     and np.linalg.norm(
                         self.agent_positions[agent] - self.agent_positions[other]) <= self.CAPTURE_RADIUS):
                 print(f"TAGGED {agent} -> {other}")
-                self.agent_positions[other] = self._reset_agent_position(other)
+                self.agent_positions[other] = self._random_agent_position(other)
                 return other
 
         return agent
 
-    def _update_flag_status(self, agent):
+    def _check_flag_capture(self, agent):
         """Check the status of the enemy flag based on the positions of the agent and flags.
 
         The flag is considered picked up if the agent's current position matches the enemy flag's position
@@ -243,7 +269,7 @@ class CTFEnv(ParallelEnv):
         if (np.linalg.norm(
                 self.agent_positions[agent] - self.flag_positions[get_enemy_flag(agent)]) < self.CAPTURE_RADIUS
                 and self.flag_carrier is None):
-            print(f"CAPTURE AT STEP {self.current_step}")
+            print(f"CAPTURE by {self.flag_carrier} at STEP {self.current_step}")
             self.flag_carrier = agent
             if team == "red":
                 self.blue_flag_status = 1
@@ -254,37 +280,43 @@ class CTFEnv(ParallelEnv):
         """Calculate the reward of the given agent."""
         team = get_team(agent)
 
-        # [1] small time penalty
-        reward = -0.01
+        reward = 0
 
-        # [2] positive reward if an agent of the team picks up the flag
+        # [2] positive individual reward for flag capture
+        if agent == self.flag_carrier:
+            reward += 50
+        # [2] positive team reward if an agent of the team picks up the flag
         if team == "red" and self.blue_flag_status == 1:
-            reward += 10
+            reward += 5
         elif team == "blue" and self.red_flag_status == 1:
-            reward += 10
-        # [3] negative reward if the enemy team picks up the flag
+            reward += 5
+        # [3] negative team reward if the enemy team picks up the flag
         if team == "red" and self.red_flag_status == 1:
-            reward -= 10
+            reward -= 5
         elif team == "blue" and self.blue_flag_status == 1:
-            reward -= 10
+            reward -= 5
 
         # [4] positive reward for tagging an enemy, negative reward for wrong tagging
-        if agent in tags:
-            reward += 2 if tags[agent] != agent else -0.2
+        if agent in tags and tags[agent] != agent:
+            reward += 5
         # [5] negative reward for being tagged (exclude agent key because an agent cannot tag itself)
         for val in list([v for k, v in tags.items() if k != agent]):
             if val == agent:
                 reward -= 2
 
+        # reward += delta_distance * 0.05
         # [7] TODO maybe negative reward for changing movements (energy reward shaping)
 
+        self.cumulative_rewards[agent] += reward
         return reward
 
     def _get_obs(self, agent):
         """Get observations for an agent."""
         # initialize grid observations
-        red_agents = blue_agents = red_flag = blue_flag = obstacles = np.zeros((self.height, self.width),
-                                                                               dtype=np.float32)
+        red_agents, blue_agents, red_flag, blue_flag, obstacles = [
+            np.zeros((self.height, self.width), dtype=np.float32)
+            for _ in range(5)
+        ]
 
         for a, pos in self.agent_positions.items():
             # 🔴 check for red team agents
@@ -329,7 +361,7 @@ class CTFEnv(ParallelEnv):
             pygame.draw.circle(self.screen, color, (pos[0] * self.SCALE_FACTOR, pos[1] * self.SCALE_FACTOR),
                                self.CAPTURE_RADIUS * self.SCALE_FACTOR, 2)
 
-    def _reset_agent_position(self, agent):
+    def _random_agent_position(self, agent):
         if get_team(agent) == "red":
             return np.array(
                 [np.random.randint(0, high=self.width // 6), np.random.randint(0, high=self.height)]
@@ -341,3 +373,30 @@ class CTFEnv(ParallelEnv):
             )
 
         return None
+
+    def _random_flag_position(self, flag):
+        if flag == "red_flag":
+            return np.array([
+                np.random.randint(2, high=self.width // 6),
+                np.random.randint(self.height // 4, high=self.height // 4 * 3)
+            ])
+
+        if flag == "blue_flag":
+            return np.array([
+                np.random.randint(self.width // 6 * 5, high=self.width - 2),
+                np.random.randint(self.height // 4, high=self.height // 4 * 3)
+            ])
+
+        return None
+
+    def _reset_captured_flag(self, flag):
+        self.agent_positions[self.flag_carrier] = self._random_agent_position(self.flag_carrier)
+        self.flag_carrier = None
+        self.flag_positions[flag] = self._random_flag_position(flag)
+
+        if flag == "red_flag":
+            self.red_flag_status = 0
+
+        elif flag == "blue_flag":
+            self.blue_flag_status = 0
+
