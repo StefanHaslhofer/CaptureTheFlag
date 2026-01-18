@@ -221,8 +221,9 @@ class CTFEnv(ParallelEnv):
 
     def _update_flag_positions(self, flag, state):
         if state == 1:
-            # set flag position to position of flag carrier if it has been picked up
-            self.flag_positions[flag] = self.agent_positions[self.flag_carrier].copy()
+            if self.flag_carrier is not None:
+                # set flag position to position of flag carrier if it has been picked up
+                self.flag_positions[flag] = self.agent_positions[self.flag_carrier].copy()
         elif state == 2 or state == 3:
             # set flag state = 0 and reset flag to random starting positions if it has been captured or returned
             self.flag_positions[flag] = self._random_flag_position(flag)
@@ -266,7 +267,7 @@ class CTFEnv(ParallelEnv):
             if (get_team(agent) != get_team(other)
                     and np.linalg.norm(
                         self.agent_positions[agent] - self.agent_positions[other]) <= self.CAPTURE_RADIUS):
-                print(f"TAGGED {agent} -> {other}")
+                print(f"TAGGED {agent} -> {other} at STEP {self.current_step}")
                 self.agent_positions[other] = self._random_agent_position(other)
                 if other == self.flag_carrier:
                     self.flag_carrier = None
@@ -295,13 +296,13 @@ class CTFEnv(ParallelEnv):
         team_flag = get_flag(agent)
         enemy_flag = get_enemy_flag(agent)
 
-        # 1 = flag pickup
-        if (np.linalg.norm(
-                self.agent_positions[agent] - self.flag_positions[get_enemy_flag(agent)]) < self.CAPTURE_RADIUS
-                and self.flag_carrier is None):
-            print(f"PICKED UP by {agent} at STEP {self.current_step}")
-            self.flag_carrier = agent
-            self.flag_states[enemy_flag] = 1
+        # 3 = flag return
+        if (self.flag_states[team_flag] == 1
+                and self.flag_carrier is None
+                and np.linalg.norm(
+                    self.agent_positions[agent] - self.flag_positions[team_flag]) < self.CAPTURE_RADIUS):
+            print(f"FLAG RETURNED by {agent} at STEP {self.current_step}")
+            self.flag_states[team_flag] = 3
             state_changed = True
 
         # 2 = flag capture
@@ -315,13 +316,13 @@ class CTFEnv(ParallelEnv):
             self.flag_states[enemy_flag] = 2
             state_changed = True
 
-        # 3 = flag return
-        if (self.flag_states[team_flag] == 1
-                and self.flag_carrier is None
-                and np.linalg.norm(
-                    self.agent_positions[agent] - self.flag_positions[team_flag]) < self.CAPTURE_RADIUS):
-            print(f"FLAG RETURNED by {agent} at STEP {self.current_step}")
-            self.flag_states[team_flag] = 3
+        # 1 = flag pickup
+        if (np.linalg.norm(
+                self.agent_positions[agent] - self.flag_positions[get_enemy_flag(agent)]) < self.CAPTURE_RADIUS
+                and self.flag_carrier is None):
+            print(f"PICKED UP by {agent} at STEP {self.current_step}")
+            self.flag_carrier = agent
+            self.flag_states[enemy_flag] = 1
             state_changed = True
 
         return state_changed
