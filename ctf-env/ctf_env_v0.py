@@ -97,19 +97,34 @@ def init(render_mode, field_size, model_path, max_steps, execution_mode):
         .env_runners(
             num_env_runners=1,
             sample_timeout_s=240,
-            explore=True
+            explore=True,
         )
         .training(train_batch_size=4000, entropy_coeff=0.01, lr=[
             [0, 5e-4],
             [1000000, 3e-4],
             [3000000, 1e-4]
         ])
+        .evaluation(
+            evaluation_num_env_runners=1,
+            evaluation_interval=1,
+            evaluation_duration="auto",
+            evaluation_parallel_to_training=True,
+            evaluation_force_reset_envs_before_iteration=True,
+            evaluation_config={
+                "env_config": {
+                    **env_config,
+                    "render_mode": "human"  # override render mode for evaluation
+                },
+                "explore": False  # deterministic evaluation
+            }
+        )
+        .debugging(log_level="INFO")
     )
 
     scheduler = ASHAScheduler(
         metric="env_runners/episode_return_mean",
         mode="max",
-        max_t=100,
+        max_t=2000,
         grace_period=10,
         reduction_factor=3,
     )

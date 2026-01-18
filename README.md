@@ -37,3 +37,18 @@ Then I tried no penalty for moving away from enemy flag to reduce agents fleeing
 Then agents just went to the other side of the map and then standing still -> time penalty was too low.
 Also still reward hacking -> I moved to only sparse rewards as suggested in the [paper](https://arxiv.org/pdf/2311.16339)
 ![img_2.png](img_2.png)
+
+
+I encountered a bug that merged all observations into one which made agents essentially blind. But a cooperative behaviour emerged.
+Why This Causes Corner/Border Behavior
+When agents can't see meaningful patterns:
+
+Random exploration dominates - they wander randomly
+Corners/edges are "stable" - fewer random collision with invisible entities
+Boundary behavior emerges - walls provide consistent feedback (can't move further)
+Accidental captures are pure luck - even though you see them in logs, agents can't learn why they happened
+
+
+PPO quickly learns:
+“Moving doesn’t reliably improve return — staying still doesn’t hurt.”
+Once that gradient direction appears once, PPO’s clipping + entropy decay locks it in.
