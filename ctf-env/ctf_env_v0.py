@@ -1,10 +1,6 @@
-from ray.rllib.algorithms import PPOConfig, Algorithm, PPO
+from ray.rllib.algorithms import PPOConfig, PPO
 from ray.rllib.env import ParallelPettingZooEnv
-from ray.rllib.env.multi_agent_env_runner import MultiAgentEnvRunner
 from ray.tune import register_env
-from ray.tune import Tuner
-from ray import tune
-from ray.tune.schedulers import ASHAScheduler
 from env.ctf_env import CTFEnv
 from env.ctf_env import get_team
 import warnings
@@ -47,26 +43,18 @@ def evaluate(results):
     return best_result
 
 
-def test_env(checkpoint, env_config):
-    """Generate and render a test environment for checkpoint evaluation by human reviewers."""
-    algo = Algorithm.from_checkpoint(checkpoint)
+def train_algorithm(algo, checkpoint_path):
+    for i in range(NUM_OF_ITERATIONS):
+        result = algo.train()
+        print(f"ITERATION {i}: reward={result['env_runners']['episode_return_mean']}")
 
-    config = algo.config.copy(copy_frozen=False)
-    config.env_config = env_config
-    config.env_runners(num_envs_per_env_runner=1)
+        if "evaluation" in result:
+            # TODO eval_reward = result['evaluation']['env_runners']['episode_return_mean']
+            print(f"EVAL DONE")
 
-    env_runner = MultiAgentEnvRunner(
-        config=config,
-    )
-
-    env_runner.set_state(algo.get_state())
-
-    samples = env_runner.sample(
-        num_episodes=10,
-        explore=False,
-    )
-
-    print(f"Episode returns: {samples.env_runner_results}")
+        if i % 10 == 0:
+            checkpoint = algo.save(checkpoint_path)
+            print(f"Checkpoint saved at {checkpoint}")
 
 
 def init(render_mode, field_size, model_path, max_steps, execution_mode):
@@ -99,17 +87,17 @@ def init(render_mode, field_size, model_path, max_steps, execution_mode):
             sample_timeout_s=240,
             explore=True,
         )
-        .training(train_batch_size=4000, entropy_coeff=0.01, lr=[
+        .training(train_batch_size=8000, entropy_coeff=0.01, lr=[
             [0, 5e-4],
             [1000000, 3e-4],
             [3000000, 1e-4]
         ])
         .evaluation(
             evaluation_num_env_runners=1,
-            evaluation_interval=1,
-            evaluation_duration="auto",
-            evaluation_parallel_to_training=True,
+            evaluation_interval=5,
+            evaluation_duration=5,
             evaluation_force_reset_envs_before_iteration=True,
+            evaluation_parallel_to_training=True,
             evaluation_config={
                 "env_config": {
                     **env_config,
@@ -121,62 +109,17 @@ def init(render_mode, field_size, model_path, max_steps, execution_mode):
         .debugging(log_level="INFO")
     )
 
-    scheduler = ASHAScheduler(
-        metric="env_runners/episode_return_mean",
-        mode="max",
-        max_t=2000,
-        grace_period=10,
-        reduction_factor=3,
-    )
-
-    results = {}
-
     if execution_mode == "retrain":
-        tuner = tune.Tuner(
-            "PPO",
-            param_space=config.to_dict(),
-            run_config=tune.RunConfig(
-                name=RUN_CONFIG_NAME,
-                stop={
-                    "training_iteration": NUM_OF_ITERATIONS,
-                },
-                checkpoint_config=tune.CheckpointConfig(
-                    checkpoint_at_end=True,
-                    checkpoint_frequency=5
-                ),
-                storage_path=data_path,
-                callbacks=[RewardLoggerCallback()],
-            ),
-            tune_config=tune.TuneConfig(
-                num_samples=1,
-                scheduler=scheduler,
-                max_concurrent_trials=2
-            ),
-        )
-
-        results = tuner.fit()
-        evaluate(results)
+        algo = config.build()
+        train_algorithm(algo, f"{data_path}/{RUN_CONFIG_NAME}")
 
     elif execution_mode == "train":
-        tuner = Tuner.restore(
-            path=f"{data_path}/{RUN_CONFIG_NAME}",
-            trainable="PPO",
-            resume_errored=True,
-            restart_errored=False,
-            resume_unfinished=True,
-            param_space=config.to_dict(),
-        )
-
-        # continue training
-        results = tuner.fit()
-        evaluate(results)
+        algo = PPO.from_checkpoint(f"{data_path}/{RUN_CONFIG_NAME}")
+        train_algorithm(algo, f"{data_path}/{RUN_CONFIG_NAME}")
 
     elif execution_mode == "evaluate":
-        tuner = Tuner.restore(f"{data_path}/{RUN_CONFIG_NAME}", trainable="PPO")
-        results = tuner.get_results()
-
-        best_result = evaluate(results)
-        test_env(best_result.checkpoint, env_config)
+        algo = PPO.from_checkpoint(f"{data_path}/{RUN_CONFIG_NAME}")
+        algo.evaluate()
 
 
 if __name__ == "__main__":
