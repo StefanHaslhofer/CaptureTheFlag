@@ -76,8 +76,8 @@ class CTFEnv(ParallelEnv):
             # Grid observation with different channels for different entity types:
             #   Channel 0: red team agent positions (0.0 = empty cell, 1.0 = entity present, 5.0 = flag carrier)
             #   Channel 1: blue team agent positions (0.0 = empty cell, 1.0 = entity present, 5.0 = flag carrier)
-            #   Channel 2: red flag location (0.0 = empty cell, 1.0 = entity present)
-            #   Channel 3: blue flag location (0.0 = empty cell, 1.0 = entity present)
+            #   Channel 2: red flag location (0.0 = empty cell, 0.5 = capture area, 1.0 = entity present)
+            #   Channel 3: blue flag location (0.0 = empty cell, 0.5 = capture area, 1.0 = entity present)
             #   Channel 4: self position (0.0 = empty cell, 1.0 = entity present)
             agent: spaces.Box(0, 1, (self.height, self.width, 5), np.float32)
             for agent in self.agents
@@ -429,11 +429,31 @@ class CTFEnv(ParallelEnv):
         blue_flag_pos = self.flag_positions["blue_flag"].copy()
 
         # 🚩 check for red flag
+        capture_rad_cells = self._get_cells_in_radius(red_flag, red_flag_pos, self.CAPTURE_RADIUS)
+        for x, y in capture_rad_cells:
+            red_flag[y, x] = 0.5
         red_flag[red_flag_pos[1], red_flag_pos[0]] = 1.0
         # 🔷 check for blue flag
+        capture_rad_cells = self._get_cells_in_radius(blue_flag, blue_flag_pos, self.CAPTURE_RADIUS)
+        for x, y in capture_rad_cells:
+            blue_flag[y, x] = 0.5
         blue_flag[blue_flag_pos[1], blue_flag_pos[0]] = 1.0
 
         return np.stack((red_agents, blue_agents, red_flag, blue_flag, self_pos), axis=-1)
+
+    def _get_cells_in_radius(self, grid, flag_pos, r):
+        rows, cols = grid.shape
+        cells = []
+
+        for y in range(rows):
+            for x in range(cols):
+                cell_pos = np.array([x, y])
+                distance = np.linalg.norm(flag_pos - cell_pos)
+
+                if distance < r:
+                    cells.append([x, y])
+
+        return cells
 
     def _draw_agents(self):
         for i, agent in enumerate(self.agents):
