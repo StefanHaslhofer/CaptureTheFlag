@@ -46,8 +46,7 @@ def evaluate(results):
 def train_algorithm(algo, checkpoint_path):
     for i in range(NUM_OF_ITERATIONS):
         result = algo.train()
-        print(f"ITERATION {i}: reward={result['env_runners']['episode_return_mean']}")
-
+        print(f"ITERATION {i}: reward={result['env_runners']['episode_return_mean']}, metadata={result['env_runners']}")
         if "evaluation" in result:
             # TODO eval_reward = result['evaluation']['env_runners']['episode_return_mean']
             print(f"EVAL DONE")
@@ -94,10 +93,7 @@ def init(render_mode, field_size, model_path, max_steps, execution_mode):
                 [0, 3e-4],
                 [400000, 1e-4],
                 [1000000, 5e-5]
-            ],
-            _torch_optimizer_options={
-                "foreach": False,  # disable foreach optimization
-            }
+            ]
         )
         .evaluation(
             evaluation_num_env_runners=1,
