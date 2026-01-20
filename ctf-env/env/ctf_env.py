@@ -39,6 +39,7 @@ class CTFEnv(ParallelEnv):
     SCALE_FACTOR = 15
     CAPTURE_RADIUS = 4
     TAG_RADIUS = 2
+    RESPAWN_TIME = 60
 
     def __init__(self, width=84, height=84, num_of_team_agents=2, render_mode="human", max_steps=1200):
         super().__init__()
@@ -51,6 +52,8 @@ class CTFEnv(ParallelEnv):
         # initialize empty object position dicts
         self.agent_positions = None
         self.flag_positions = None
+        self.disabled_queue = {}
+        self.scorer = None
         self.flag_carrier = None
         self.flag_states = {
             "red_flag": 0,
@@ -94,12 +97,13 @@ class CTFEnv(ParallelEnv):
     def reset(self, *, seed=None, options=None):
         print("RESET")
         self.current_step = 0
+        self.scorer = None
         self.flag_carrier = None
         self.flag_states = {
             "red_flag": 0,
             "blue_flag": 0
         }
-
+        self.disabled_queue = {}
         self.reward_heatmap = np.zeros((self.height, self.width))
         if self.render_mode == "debug":
             print_heatmap(self.reward_heatmap)
@@ -140,12 +144,14 @@ class CTFEnv(ParallelEnv):
         delta, d, t, flag_state_changed = {}, {}, {}, False
         # 🎬 carry out actions
         for agent in self.agents:
+            # skip agent if it is disabled
+            is_disabled = agent in self.disabled_queue
             action = action_dict[agent]
             # call move logic
-            delta[agent], d[agent] = self._move(agent, action)
+            delta[agent], d[agent] = self._move(agent, action, is_disabled)
             # action index == 5 -> tag
             if action == 5:
-                t[agent] = self._tag(agent)
+                t[agent] = self._tag(agent, is_disabled)
 
         # 🚩 check if an agent picked up or captured the enemy flag
         for agent in self.agents:
@@ -167,6 +173,11 @@ class CTFEnv(ParallelEnv):
             agent: self._calculate_reward(agent, delta[agent], d[agent], t, flag_state_changed)
             for agent in self.agents
         }
+
+        self.scorer = None
+
+        # 🐣 re-enable agents after timer has run out
+        self._enable_agents()
 
         # ⛔ terminate if maximum number of steps have been reached
         terminations = {
@@ -229,8 +240,8 @@ class CTFEnv(ParallelEnv):
             self.flag_positions[flag] = self._random_flag_position(flag)
             self.flag_states[flag] = 0
 
-    def _move(self, agent, action):
-        """ Moves the agent and calculates the change in distance to the enemy flag.
+    def _move(self, agent, action, is_disabled):
+        """ Moves the agent (if not disabled) and calculates the change in distance to the enemy flag.
 
         Returns
         -------
@@ -238,14 +249,15 @@ class CTFEnv(ParallelEnv):
         d     : distance to the enemy flag after move
         """
         pos = self.agent_positions[agent].copy()
-        if action == 1:  # up
-            pos[1] = max(0, pos[1] - 1)
-        elif action == 2:  # down
-            pos[1] = min(self.height - 1, pos[1] + 1)
-        elif action == 3:  # left
-            pos[0] = max(0, pos[0] - 1)
-        elif action == 4:  # right
-            pos[0] = min(self.width - 1, pos[0] + 1)
+        if not is_disabled:
+            if action == 1:  # up
+                pos[1] = max(0, pos[1] - 1)
+            elif action == 2:  # down
+                pos[1] = min(self.height - 1, pos[1] + 1)
+            elif action == 3:  # left
+                pos[0] = max(0, pos[0] - 1)
+            elif action == 4:  # right
+                pos[0] = min(self.width - 1, pos[0] + 1)
 
         efp = self.flag_positions[get_enemy_flag(agent)]
         d = np.linalg.norm(pos - efp)
@@ -254,7 +266,13 @@ class CTFEnv(ParallelEnv):
         self.agent_positions[agent] = pos
         return delta, d
 
-    def _tag(self, agent):
+    def _enable_agents(self):
+        for agent, time in self.disabled_queue.copy().items():
+            self.disabled_queue[agent] -= 1
+            if time <= 0:
+                self.disabled_queue.pop(agent)
+
+    def _tag(self, agent, is_disabled):
         """
         Check if an agent successfully tagged an enemy.
 
@@ -263,12 +281,19 @@ class CTFEnv(ParallelEnv):
         The enemy agent if the tag was successful, otherwise the original agent itself.
         """
         for other in self.agents:
-            # agent has to be in enemy team and within tagging distance
+            # agent has to be in enemy team and both agents have to be enabled and within tagging distance
             if (get_team(agent) != get_team(other)
+                    and not is_disabled
+                    and other not in self.disabled_queue
                     and np.linalg.norm(
-                        self.agent_positions[agent] - self.agent_positions[other]) <= self.CAPTURE_RADIUS):
+                        self.agent_positions[agent] - self.agent_positions[other]) < self.TAG_RADIUS):
                 print(f"TAGGED {agent} -> {other} at STEP {self.current_step}")
+                # reset agent if tagged
                 self.agent_positions[other] = self._random_agent_position(other)
+                # add agent to respawn queue
+                self.disabled_queue = {
+                    other: self.RESPAWN_TIME
+                }
                 if other == self.flag_carrier:
                     self.flag_carrier = None
                 return other
@@ -306,21 +331,22 @@ class CTFEnv(ParallelEnv):
             state_changed = True
 
         # 2 = flag capture
-        if (np.linalg.norm(
+        elif (np.linalg.norm(
                 self.flag_positions[get_enemy_flag(agent)] - self.flag_positions[team_flag])
-                < self.CAPTURE_RADIUS
-                and self.flag_carrier == agent):
+              < self.CAPTURE_RADIUS
+              and self.flag_carrier == agent):
             print(f"CAPTURED by {agent} at STEP {self.current_step}")
-            self.agent_positions[self.flag_carrier] = self._random_agent_position(self.flag_carrier)
+            self.scorer = agent
             self.flag_carrier = None
             self.flag_states[enemy_flag] = 2
             state_changed = True
 
         # 1 = flag pickup
-        if (np.linalg.norm(
+        elif (np.linalg.norm(
                 self.agent_positions[agent] - self.flag_positions[get_enemy_flag(agent)]) < self.CAPTURE_RADIUS
-                and self.flag_carrier is None):
+              and self.flag_carrier is None):
             print(f"PICKED UP by {agent} at STEP {self.current_step}")
+            self.scorer = agent
             self.flag_carrier = agent
             self.flag_states[enemy_flag] = 1
             state_changed = True
@@ -332,12 +358,16 @@ class CTFEnv(ParallelEnv):
         team_flag = get_flag(agent)
         enemy_flag = get_enemy_flag(agent)
 
-        reward = 0
+        # [0] small time penalty
+        reward = -0.001
 
+        # TODO mark capture radius with 0.5 around flags? Or maybe merge the whole play area into one? Also mark halves with 0.1?
         if flag_state_changed:
-            # TODO maybe individual rewards?
             # [1] positive team reward if an agent of the team captures the flag
             if self.flag_states[enemy_flag] == 2:
+                # additional individual reward for flag capture
+                if self.scorer == agent:
+                    reward += 20
                 reward += 10
             # [2] negative team reward if the enemy team captures the flag
             if self.flag_states[team_flag] == 2:
@@ -345,6 +375,9 @@ class CTFEnv(ParallelEnv):
 
             # [3] positive team reward if an agent of the team picks up the flag
             if self.flag_states[enemy_flag] == 1:
+                # additional individual reward for pickup
+                if self.scorer == agent:
+                    reward += 2
                 reward += 5
             # [4] negative team reward if the enemy team picks up the flag
             if self.flag_states[team_flag] == 1:
@@ -357,16 +390,17 @@ class CTFEnv(ParallelEnv):
             if self.flag_states[enemy_flag] == 3:
                 reward -= 2
 
-        # [4] positive reward for tagging an enemy (bonus if enemy is the flag carrier)
+        # [7] positive reward for tagging an enemy (bonus if enemy is the flag carrier)
         if agent in tags and tags[agent] != agent:
             reward += 2
-        # [5] negative reward for being tagged (exclude agent key because an agent cannot tag itself)
+        # [8] negative reward for being tagged (exclude agent key because an agent cannot tag itself)
         for val in list([v for k, v in tags.items() if k != agent]):
             if val == agent:
                 reward -= 1
 
-        # reward += delta_distance * 0.05
-        # [7] TODO maybe negative reward for changing movements (energy reward shaping)
+        # [7] penalty for not moving
+        if delta_distance == 0:
+            reward -= 0.005
 
         self.cumulative_rewards[agent] += reward
         return reward
@@ -405,6 +439,11 @@ class CTFEnv(ParallelEnv):
         for i, agent in enumerate(self.agents):
             pos = self.agent_positions[agent]
             color = get_team(agent)
+
+            # set agent color to gray if disabled
+            if agent in self.disabled_queue:
+                color = "gray"
+
             pygame.draw.circle(self.screen, color, (pos[0] * self.SCALE_FACTOR, pos[1] * self.SCALE_FACTOR),
                                self.SCALE_FACTOR)
             # draw tag radius

@@ -87,11 +87,18 @@ def init(render_mode, field_size, model_path, max_steps, execution_mode):
             sample_timeout_s=240,
             explore=True,
         )
-        .training(train_batch_size=8000, entropy_coeff=0.01, lr=[
-            [0, 5e-4],
-            [1000000, 3e-4],
-            [3000000, 1e-4]
-        ])
+        .training(
+            train_batch_size=8000,
+            entropy_coeff=0.05,
+            lr=[
+                [0, 3e-4],
+                [400000, 1e-4],
+                [1000000, 5e-5]
+            ],
+            _torch_optimizer_options={
+                "foreach": False,  # disable foreach optimization
+            }
+        )
         .evaluation(
             evaluation_num_env_runners=1,
             evaluation_interval=5,
