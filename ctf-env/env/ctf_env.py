@@ -141,14 +141,14 @@ class CTFEnv(ParallelEnv):
 
     def step(self, action_dict):
         self.current_step += 1
-        delta, d, t, flag_state_changed = {}, {}, {}, False
+        delta, d, t, oob, flag_state_changed = {}, {}, {}, {}, False
         # 🎬 carry out actions
         for agent in self.agents:
             # skip agent if it is disabled
             is_disabled = agent in self.disabled_queue
             action = action_dict[agent]
             # call move logic
-            delta[agent], d[agent] = self._move(agent, action, is_disabled)
+            delta[agent], d[agent], oob[agent] = self._move(agent, action, is_disabled)
             # action index == 5 -> tag
             if action == 5:
                 t[agent] = self._tag(agent, is_disabled)
@@ -170,7 +170,7 @@ class CTFEnv(ParallelEnv):
 
         # 🏅 calculate rewards for each agent
         rewards = {
-            agent: self._calculate_reward(agent, delta[agent], d[agent], t, flag_state_changed)
+            agent: self._calculate_reward(agent, delta[agent], d[agent], t, flag_state_changed, oob)
             for agent in self.agents
         }
 
@@ -187,8 +187,11 @@ class CTFEnv(ParallelEnv):
         truncations = {agent: False for agent in self.agents}
         infos = {agent: {} for agent in self.agents}
 
-        if self.render_mode == "human":
+        if self.render_mode == "human" or self.render_mode == "debug":
             self.render()
+
+        if self.render_mode == "debug":
+            print(action_dict)
 
         # 🖨️ print rewards if environment is about to be terminated
         if all(terminations.values()):
@@ -241,30 +244,55 @@ class CTFEnv(ParallelEnv):
             self.flag_states[flag] = 0
 
     def _move(self, agent, action, is_disabled):
-        """ Moves the agent (if not disabled) and calculates the change in distance to the enemy flag.
+        """
+        Moves the agent (if not disabled) and calculates the change in distance to the enemy flag.
+        Reset agent if it goes out of bounds.
 
         Returns
         -------
         delta : distance delta to the enemy flag
         d     : distance to the enemy flag after move
         """
+        out_of_bounds = False
         pos = self.agent_positions[agent].copy()
         if not is_disabled:
             if action == 1:  # up
+                if pos[1] - 1 < 0:
+                    out_of_bounds = True
                 pos[1] = max(0, pos[1] - 1)
             elif action == 2:  # down
+                if pos[1] + 1 > self.height - 1:
+                    out_of_bounds = True
                 pos[1] = min(self.height - 1, pos[1] + 1)
             elif action == 3:  # left
+                if pos[0] - 1 < 0:
+                    out_of_bounds = True
                 pos[0] = max(0, pos[0] - 1)
             elif action == 4:  # right
+                if pos[0] + 1 > self.width - 1:
+                    out_of_bounds = True
                 pos[0] = min(self.width - 1, pos[0] + 1)
 
         efp = self.flag_positions[get_enemy_flag(agent)]
         d = np.linalg.norm(pos - efp)
         delta = (np.linalg.norm(self.agent_positions[agent] - efp) - np.linalg.norm(pos - efp))
 
-        self.agent_positions[agent] = pos
-        return delta, d
+        if out_of_bounds:
+            self._reset_agent(agent)
+        else:
+            self.agent_positions[agent] = pos
+
+        return delta, d, out_of_bounds
+
+    def _reset_agent(self, agent):
+        """Reset the agent if it tries to go out of bounds."""
+        # reset agent position
+        self.agent_positions[agent] = self._random_agent_position(agent)
+        # add agent to disabled queue
+        self.disabled_queue[agent] = self.RESPAWN_TIME
+        # reset flag carrier if oob
+        if agent == self.flag_carrier:
+            self.flag_carrier = None
 
     def _enable_agents(self):
         for agent, time in self.disabled_queue.copy().items():
@@ -288,14 +316,7 @@ class CTFEnv(ParallelEnv):
                     and np.linalg.norm(
                         self.agent_positions[agent] - self.agent_positions[other]) < self.TAG_RADIUS):
                 print(f"TAGGED {agent} -> {other} at STEP {self.current_step}")
-                # reset agent if tagged
-                self.agent_positions[other] = self._random_agent_position(other)
-                # add agent to respawn queue
-                self.disabled_queue = {
-                    other: self.RESPAWN_TIME
-                }
-                if other == self.flag_carrier:
-                    self.flag_carrier = None
+                self._reset_agent(other)
                 return other
 
         return agent
@@ -353,7 +374,7 @@ class CTFEnv(ParallelEnv):
 
         return state_changed
 
-    def _calculate_reward(self, agent, delta_distance, _dist, tags, flag_state_changed):
+    def _calculate_reward(self, agent, delta_distance, _dist, tags, flag_state_changed, oob):
         """Calculate the reward of the given agent."""
         team_flag = get_flag(agent)
         enemy_flag = get_enemy_flag(agent)
@@ -400,6 +421,10 @@ class CTFEnv(ParallelEnv):
         # [7] penalty for not moving
         if delta_distance == 0:
             reward -= 0.005
+
+        # [8] penalty for trying to get out of bounds
+        if oob[agent]:
+            reward -= 1
 
         self.cumulative_rewards[agent] += reward
         return reward
@@ -461,14 +486,15 @@ class CTFEnv(ParallelEnv):
 
     def _random_agent_position(self, agent):
         if get_team(agent) == "red":
-            return np.array(
-                [np.random.randint(0, high=self.width // 6), np.random.randint(0, high=self.height)]
-            )
-
+            return np.array([
+                np.random.randint(1, high=self.width // 6),
+                np.random.randint(1, high=self.height - 1)
+            ])
         if get_team(agent) == "blue":
-            return np.array(
-                [np.random.randint(self.width // 6 * 5, high=self.width), np.random.randint(0, high=self.height)]
-            )
+            return np.array([
+                np.random.randint(self.width // 6 * 5, high=self.width - 1),
+                np.random.randint(1, high=self.height - 1)
+            ])
 
         return None
 

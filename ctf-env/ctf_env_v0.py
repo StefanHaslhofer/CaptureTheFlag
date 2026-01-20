@@ -22,6 +22,11 @@ class RewardLoggerCallback(Callback):
             print(f"Trial {trial.trial_id} - Iteration {iteration}: Mean Reward = {mean_reward:.2f}")
 
 
+def betas_tensor_to_float(learner):
+    param_grp = next(iter(learner._optimizer_parameters.keys())).param_groups[0]
+    param_grp["betas"] = tuple(beta.item() for beta in param_grp["betas"])
+
+
 def env_creator(config):
     # create petting zoo ctf environment
     env = CTFEnv(config['width'], config['height'], config['num_of_team_agents'], config['render_mode'],
@@ -118,6 +123,7 @@ def init(render_mode, field_size, model_path, max_steps, execution_mode):
 
     elif execution_mode == "train":
         algo = PPO.from_checkpoint(f"{data_path}/{RUN_CONFIG_NAME}")
+        algo.learner_group.foreach_learner(betas_tensor_to_float)
         train_algorithm(algo, f"{data_path}/{RUN_CONFIG_NAME}")
 
     elif execution_mode == "evaluate":
