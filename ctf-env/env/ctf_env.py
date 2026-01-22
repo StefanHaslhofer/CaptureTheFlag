@@ -158,6 +158,12 @@ class CTFEnv(ParallelEnv):
             if self._update_flag_status(agent):
                 flag_state_changed = True
 
+        # 🏅 calculate rewards for each agent
+        rewards = {
+            agent: self._calculate_reward(agent, delta[agent], d[agent], t, flag_state_changed, oob)
+            for agent in self.agents
+        }
+
         # 🪢 update flag position if it has been picked up
         for flag, state in self.flag_states.items():
             self._update_flag_positions(flag, state)
@@ -165,12 +171,6 @@ class CTFEnv(ParallelEnv):
         # 🔬 get new observations after movements
         observations = {
             agent: self._get_obs(agent)
-            for agent in self.agents
-        }
-
-        # 🏅 calculate rewards for each agent
-        rewards = {
-            agent: self._calculate_reward(agent, delta[agent], d[agent], t, flag_state_changed, oob)
             for agent in self.agents
         }
 
@@ -235,7 +235,7 @@ class CTFEnv(ParallelEnv):
 
     def _update_flag_positions(self, flag, state):
         if state == 1:
-            if self.flag_carrier is not None:
+            if self.flag_carrier is not None and get_flag(self.flag_carrier) != flag:
                 # set flag position to position of flag carrier if it has been picked up
                 self.flag_positions[flag] = self.agent_positions[self.flag_carrier].copy()
         elif state == 2 or state == 3:
@@ -353,7 +353,7 @@ class CTFEnv(ParallelEnv):
 
         # 2 = flag capture
         elif (np.linalg.norm(
-                self.flag_positions[get_enemy_flag(agent)] - self.flag_positions[team_flag])
+                self.flag_positions[enemy_flag] - self.flag_positions[team_flag])
               < self.CAPTURE_RADIUS
               and self.flag_carrier == agent):
             print(f"CAPTURED by {agent} at STEP {self.current_step}")
