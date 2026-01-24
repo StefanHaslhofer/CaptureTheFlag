@@ -10,7 +10,7 @@ from ray.tune.callback import Callback
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-NUM_OF_ITERATIONS = 1000
+NUM_OF_ITERATIONS = 4000
 RUN_CONFIG_NAME = 'ppo_ctf_training'
 
 
@@ -98,11 +98,17 @@ def init(render_mode, field_size, model_path, max_steps, execution_mode):
                 [0, 3e-4],
                 [400000, 1e-4],
                 [1000000, 5e-5]
-            ]
+            ],
+            optimizer={
+                "betas": (0.9, 0.999),  # Ensure these are Python floats
+                "eps": 1e-8,
+                "capturable": False,
+                "foreach": True,
+            }
         )
         .evaluation(
             evaluation_num_env_runners=1,
-            evaluation_interval=5,
+            evaluation_interval=10,
             evaluation_duration=5,
             evaluation_force_reset_envs_before_iteration=True,
             evaluation_parallel_to_training=True,
@@ -123,7 +129,19 @@ def init(render_mode, field_size, model_path, max_steps, execution_mode):
 
     elif execution_mode == "train":
         algo = PPO.from_checkpoint(f"{data_path}/{RUN_CONFIG_NAME}")
-        algo.learner_group.foreach_learner(betas_tensor_to_float)
+
+        def fix_learner_optimizer(learner):
+            import torch
+
+            # Access optimizers in learner
+            if hasattr(learner, '_optimizer_parameters'):
+                for optimizer, params in learner._optimizer_parameters.items():
+                    if hasattr(optimizer, 'param_groups'):
+                        for group in optimizer.param_groups:
+                            if 'betas' in group and torch.is_tensor(group['betas'][0]):
+                                group['betas'] = (float(group['betas'][0]), float(group['betas'][1]))
+
+        algo.learner_group.foreach_learner(fix_learner_optimizer)
         train_algorithm(algo, f"{data_path}/{RUN_CONFIG_NAME}")
 
     elif execution_mode == "evaluate":

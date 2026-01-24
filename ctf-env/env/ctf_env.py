@@ -418,13 +418,13 @@ class CTFEnv(ParallelEnv):
             if val == agent:
                 reward -= 1
 
-        # [7] penalty for not moving
-        if delta_distance == 0:
-            reward -= 0.005
+        # [7] penalty for not moving (only applied if agent is not disabled)
+        if delta_distance == 0 and agent not in self.disabled_queue:
+            reward -= 0.1
 
         # [8] penalty for trying to get out of bounds
         if oob[agent]:
-            reward -= 1
+            reward -= 0.5
 
         self.cumulative_rewards[agent] += reward
         return reward
