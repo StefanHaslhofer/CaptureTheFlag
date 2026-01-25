@@ -379,8 +379,7 @@ class CTFEnv(ParallelEnv):
         team_flag = get_flag(agent)
         enemy_flag = get_enemy_flag(agent)
 
-        # [0] small time penalty
-        reward = -0.001
+        reward = 0
 
         if flag_state_changed:
             # [1] positive team reward if an agent of the team captures the flag
@@ -397,7 +396,7 @@ class CTFEnv(ParallelEnv):
             if self.flag_states[enemy_flag] == 1:
                 # additional individual reward for pickup
                 if self.scorer == agent:
-                    reward += 2
+                    reward += 10
                 reward += 5
             # [4] negative team reward if the enemy team picks up the flag
             if self.flag_states[team_flag] == 1:
@@ -418,8 +417,8 @@ class CTFEnv(ParallelEnv):
             if val == agent:
                 reward -= 1
 
-        # [7] penalty for not moving (only applied if agent is not disabled)
-        if delta_distance == 0 and agent not in self.disabled_queue:
+        # [7] penalty for not moving
+        if delta_distance == 0:
             reward -= 0.1
 
         # [8] penalty for trying to get out of bounds
